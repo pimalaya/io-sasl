@@ -6,22 +6,28 @@ status: current
 
 # Mechanisms
 
-Six client-side mechanisms, each computing exactly what its specification puts on the wire, plus the vocabulary describing their credentials. The source tree follows the specifications: one module per RFC where one exists, and a root module for the two mechanisms that never got one.
+Client-side mechanisms, each computing exactly what its specification puts on the wire, plus the vocabulary describing their credentials. The source tree follows the specifications: one module per RFC where one exists, and a root module for the mechanisms that never got one.
+
+### Requirement: Coverage
+The crate SHALL carry every SASL mechanism a client can run without an external security library: ANONYMOUS, EXTERNAL, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each of those under its plain and its `-PLUS` name. Mechanisms the IANA registry lists but a live specification discourages SHALL NOT be added, DIGEST-MD5 being Historic by RFC 6331. The GSSAPI family SHALL stay out, its tokens coming from a Kerberos implementation that performs I/O of its own.
 
 ### Requirement: Vocabulary
-The `mechanism` module SHALL hold `SaslMechanism` (the tag, knowing its registered wire name) and `Sasl` (a tag paired with the credentials of one mechanism). `SaslMechanism` SHALL carry a variant per mechanism whatever the build enables, since a consumer matching a server capability list has to name a mechanism it cannot run.
+The `mechanism` module SHALL hold `SaslMechanism` (the tag, knowing its registered wire name) and `Sasl` (a tag paired with the credentials of one mechanism). `SaslMechanism` SHALL carry a variant per registered name whatever the build enables, `-PLUS` names included, since a consumer matching a server capability list has to name a mechanism it cannot run. `Sasl` SHALL carry one variant per profile rather than per name, the `-PLUS` names following from the credentials.
 
 ### Requirement: Credential locality
-Each credential struct SHALL live in the module of the mechanism that transmits it, next to that mechanism's coroutine and failure type, and SHALL be convertible into `Sasl`. A mechanism excluded by a cargo feature SHALL take its credential struct and its `Sasl` variant with it, an exchange this build cannot run having no shape to describe.
+Each credential struct SHALL live in the module of the mechanism that transmits it, next to that mechanism's coroutine and failure type, or in the family module when several mechanisms share it. A struct serving one mechanism SHALL be convertible into `Sasl`; one shared by several SHALL NOT, an impl having no way to guess which variant was meant. A mechanism excluded by a cargo feature SHALL take its `Sasl` variant with it, an exchange this build cannot run having no shape to describe.
 
 ### Requirement: Naming
 A mechanism SHALL name its coroutine, its failure type and its credential struct after the mechanism alone: `SaslPlain`, `SaslPlainError`, `SaslPlainCreds`. The `Auth` verb the Pimalaya naming canon would put on the coroutine SHALL be dropped, a verb every item of the crate shares telling none of them apart, and the credentials SHALL carry the `Creds` extension instead. This is a local exception to the canon, not a change to it.
 
 ### Requirement: Constructors
-Each mechanism SHALL be built from its own credential struct, so a consumer matching on `Sasl` reaches the mechanism it needs without restating the fields.
+Each mechanism SHALL be built from the credential struct it shares with its `Sasl` variant, so a consumer matching on that enum reaches the mechanism it needs without restating the fields.
 
 ### Requirement: ANONYMOUS
 `SaslAnonymous` (RFC 4505) SHALL answer `Start` with the optional trace token, or an empty payload when there is none, and complete `Ok` on `PeerFinished`.
+
+### Requirement: EXTERNAL
+`SaslExternal` (RFC 4422 appendix A) SHALL answer `Start` with the optional authorization identity, or an empty payload when there is none, and complete `Ok` on `PeerFinished`. It SHALL carry no secret of its own, the outer channel being what authenticates.
 
 ### Requirement: PLAIN
 `SaslPlain` (RFC 4616) SHALL answer `Start` with `authzid NUL authcid NUL passwd`, leaving the authorization identity empty when absent, and complete `Ok` on `PeerFinished`.

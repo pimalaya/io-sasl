@@ -21,23 +21,27 @@ Everything else follows io-imap, since the two crates are read together. A yield
 
 ## Feature matrix
 
-The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. The only cargo feature is `scram`, which is enabled by default and pulls in the HMAC, PBKDF2, SHA-256 and base64 crates that SCRAM-SHA-256 needs. Build both shapes, since the reduced one is what a consumer picks when it only speaks the cleartext and OAuth mechanisms.
+The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Two cargo features, both about cryptography, since nothing else pulls a crate in. `scram` is enabled by default and pulls the HMAC, PBKDF2, SHA-2 and base64 crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `scram-sha-1` adds the SHA-1 profile and its own digest crate, and stays off by default, so a build gets the weakest profile only by asking for it.
+
+Build all three shapes:
 
 ```sh
-cargo build --no-default-features  # the five mechanisms needing no cryptography
-cargo build --all-features         # everything, SCRAM-SHA-256 included
+cargo build --no-default-features                    # the mechanisms needing no cryptography
+cargo build                                          # the SHA-2 profiles too
+cargo build --all-features                           # everything, SCRAM-SHA-1 included
 ```
 
 ## Tests
 
-Three layers, each answering a different question. The unit tests next to each mechanism pin its payloads against its own specification, and the ones in the vocabulary module walk the routing between its two closed sets, every tag against the name it is registered under and every credential struct against the variant it converts into, as one table rather than six cases, since what six near-identical arms get wrong is two of them landing on the same place. tests/exchange.rs drives whole exchanges through the public API and states its assertions as properties over all six mechanisms at once, so a seventh one getting an edge of the contract wrong fails there rather than inside a protocol crate. tests/coverage.rs holds the one claim no single module can make: that each coroutine answers with the tag of the module it lives in, which is the name that ends up on the wire.
+Three layers, each answering a different question. The unit tests next to each mechanism pin its payloads against its own specification, those in the SCRAM family module pin what the profiles share, and those in the vocabulary module walk the routing between its two closed sets, every tag against the name it is registered under and every credential struct against the variant it lands in, as one table rather than a case per mechanism, since what a dozen near-identical arms get wrong is two of them landing on the same place. tests/exchange.rs drives whole exchanges through the public API and states its assertions as properties over the whole mechanism set at once, so one added later getting an edge of the contract wrong fails there rather than inside a protocol crate. tests/coverage.rs holds the one claim no single module can make: that each coroutine answers with the tag of the module it lives in, which is the name that ends up on the wire, and for SCRAM that it answers with the `-PLUS` one exactly when a binding is in play.
 
 The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it.
 
-Run both feature shapes, since the reduced one compiles a different set of mechanisms:
+Run every feature shape, since each compiles a different set of mechanisms:
 
 ```sh
 cargo test --no-default-features
+cargo test
 cargo test --all-features
 ```
 
@@ -51,9 +55,11 @@ cargo tarpaulin --all-features --skip-clean --out Stdout
 
 tarpaulin.toml keeps the fuzz targets out of the measured surface: they are a separate cargo package that the coverage run never builds. Never twist the code to move the number. Code no test can reach is either dead, and goes, or is worth a test that means something on its own.
 
+The number to expect is 97.81%, not 100%, and the gap is a measurement artifact rather than untested code. Six lines of src/rfc5802.rs read as uncovered: the second line of a two-line `format!` call, the tail of the constant-time comparison, and four match-arm patterns whose bodies are counted as covered. They are all inside the generic SCRAM exchange, which the compiler instantiates once per digest, and tarpaulin attributes one address per source line across those instantiations. Both engines report the same six. Mutating any of them makes several tests fail, which is the check to redo rather than trusting this paragraph: the whole point of a coverage run is that nobody has to.
+
 ## Fuzzing
 
-Two coverage-guided targets under [fuzz/](./fuzz), described in [fuzz/README.md](./fuzz/README.md): one driving all six mechanisms with arbitrary peer messages, one driving SCRAM-SHA-256 against a server signature the harness derives itself, so that accepting an exchange is checked against arithmetic done outside the state machine doing the accepting. Any change to the SCRAM message assembly or key derivation is worth a fuzz run.
+Two coverage-guided targets under [fuzz/](./fuzz), described in [fuzz/README.md](./fuzz/README.md): one driving every mechanism with arbitrary peer messages, bound and unbound, one driving SCRAM-SHA-256 against a server signature the harness derives itself, so that accepting an exchange is checked against arithmetic done outside the state machine doing the accepting. Any change to the SCRAM message assembly or key derivation is worth a fuzz run.
 
 They need the nightly toolchain cargo-fuzz builds against, which the `fuzz` devShell of the flake carries, unlike the default one:
 
@@ -74,4 +80,6 @@ Entropy stays with the caller. SCRAM-SHA-256 takes its client nonce as an argume
 
 ## Cryptography changes
 
-The SCRAM-SHA-256 exchange is pinned by the test vector published in RFC 7677 section 3, for the user `user` with the password `pencil`. Any change to the message assembly or to the key derivation has to keep that test passing untouched; when it fails, the code is wrong, never the vector.
+Two SCRAM profiles are pinned by a published exchange, SHA-1 by RFC 5802 section 5 and SHA-256 by RFC 7677 section 3, both for the user `user` with the password `pencil`. Any change to the message assembly or to the key derivation has to keep those tests passing untouched; when one fails, the code is wrong, never the vector.
+
+SHA-512 has no published exchange, and neither has any `-PLUS` variant. Their vectors were derived from the RFC 5802 algorithm by an implementation outside this crate, checked first against the two published exchanges, which it reproduces byte for byte. A vector regenerated from this crate's own output would pin nothing, so a new profile follows the same route: reproduce the published exchanges with an independent implementation, then derive.

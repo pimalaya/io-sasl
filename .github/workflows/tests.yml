@@ -8,8 +8,8 @@ jobs:
     uses: pimalaya/nix/.github/workflows/tests.yml@master
     secrets: inherit
 
-  no-default-features:
-    name: no scram
+  feature-shapes:
+    name: no scram, and every scram
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,7 @@ jobs:
           extraPullNames: nix-community
       - uses: Swatinem/rust-cache@v2
       - run: nix develop -c cargo test --no-default-features
+      - run: nix develop -c cargo test --all-features
 
   coverage:
     name: coverage -> codecov

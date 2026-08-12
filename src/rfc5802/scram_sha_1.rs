@@ -1,28 +1,33 @@
-//! The SCRAM-SHA-256 profile ([RFC 7677]), the one to prefer.
+//! The SCRAM-SHA-1 profile ([RFC 5802]), the original one.
 //!
 //! The exchange, the failure type and the credentials are the family's,
 //! in [`crate::rfc5802`]; this module adds the digest and the two names
-//! the profile is registered under, `SCRAM-SHA-256` and
-//! `SCRAM-SHA-256-PLUS`.
+//! the profile is registered under, `SCRAM-SHA-1` and
+//! `SCRAM-SHA-1-PLUS`.
+//!
+//! SHA-1 is broken for collision resistance, which SCRAM does not rest
+//! on: the exchange uses HMAC-SHA-1 and PBKDF2-HMAC-SHA-1, neither of
+//! which the published collisions break. It is still the weakest
+//! profile of the three and exists for servers that never enabled
+//! another, which is why it sits behind its own `scram-sha-1` cargo
+//! feature rather than in the default set.
 //!
 //! # Example
 //!
-//! The exchange published in [RFC 7677 section 3], for the user `user`
-//! with the password `pencil`. A real client draws its nonce from a
-//! cryptographic source instead of hard-coding one.
+//! The exchange published in [RFC 5802 section 5], for the user `user`
+//! with the password `pencil`.
 //!
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     rfc5802::{SaslScramChannelBinding, SaslScramCreds},
-//!     rfc7677::scram_sha_256::SaslScramSha256,
+//!     rfc5802::{SaslScramChannelBinding, SaslScramCreds, scram_sha_1::SaslScramSha1},
 //! };
 //! use secrecy::SecretString;
 //!
-//! let mut auth = SaslScramSha256::new(SaslScramCreds {
+//! let mut auth = SaslScramSha1::new(SaslScramCreds {
 //!     username: "user".into(),
 //!     password: SecretString::from("pencil"),
-//!     nonce: b"rOprNGfwEbeRWgbNEkqO".to_vec(),
+//!     nonce: b"fyko+d2lbbFgONRv9qkxdawL".to_vec(),
 //!     channel_binding: SaslScramChannelBinding::Unsupported,
 //! });
 //!
@@ -32,12 +37,12 @@
 //!     panic!("expected the client-first-message");
 //! };
 //!
-//! assert_eq!(first, b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO");
+//! assert_eq!(first, b"n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL");
 //!
 //! // The server extends the nonce and names its salt and iteration
 //! // count; the mechanism answers with the proof it knows the password.
 //! let server_first = SaslResume::Challenge(
-//!     b"r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
+//!     b"r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096",
 //! );
 //!
 //! let state = auth.resume(server_first);
@@ -46,12 +51,12 @@
 //!     panic!("expected the client-final-message");
 //! };
 //!
-//! assert!(proof.starts_with(b"c=biws,r=rOprNGfwEbeRWgbNEkqO"));
+//! assert!(proof.ends_with(b"p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="));
 //!
 //! // The server proves itself in return. Feeding this message back is
 //! // what mutual authentication rests on: ending the exchange here
 //! // instead would complete with ServerSignatureNotVerified.
-//! let signature = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
+//! let signature = b"v=rmF9pqV8S7suAoZWja4dJRkFsKQ=";
 //!
 //! let state = auth.resume(SaslResume::Challenge(signature));
 //!
@@ -70,22 +75,22 @@
 //! result.unwrap();
 //! ```
 //!
-//! [RFC 7677]: https://www.rfc-editor.org/rfc/rfc7677
-//! [RFC 7677 section 3]: https://www.rfc-editor.org/rfc/rfc7677#section-3
+//! [RFC 5802]: https://www.rfc-editor.org/rfc/rfc5802
+//! [RFC 5802 section 5]: https://www.rfc-editor.org/rfc/rfc5802#section-5
 
-use sha2::Sha256;
+use sha1::Sha1;
 
 use crate::{
     mechanism::SaslMechanism,
     rfc5802::{SaslScram, SaslScramDigest},
 };
 
-/// I/O-free SASL SCRAM-SHA-256 mechanism.
-pub type SaslScramSha256 = SaslScram<Sha256>;
+/// I/O-free SASL SCRAM-SHA-1 mechanism.
+pub type SaslScramSha1 = SaslScram<Sha1>;
 
-impl SaslScramDigest for Sha256 {
-    const MECHANISM: SaslMechanism = SaslMechanism::ScramSha256;
-    const MECHANISM_PLUS: SaslMechanism = SaslMechanism::ScramSha256Plus;
+impl SaslScramDigest for Sha1 {
+    const MECHANISM: SaslMechanism = SaslMechanism::ScramSha1;
+    const MECHANISM_PLUS: SaslMechanism = SaslMechanism::ScramSha1Plus;
 }
 
 #[cfg(test)]
@@ -97,22 +102,24 @@ mod tests {
     use crate::{
         coroutine::*,
         mechanism::SaslMechanism,
-        rfc5802::{SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds},
-        rfc7677::scram_sha_256::*,
+        rfc5802::{
+            SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds, scram_sha_1::*,
+        },
     };
 
-    // NOTE: the published exchange of RFC 7677 section 3, for the user
+    // NOTE: the published exchange of RFC 5802 section 5, for the user
     // "user" with the password "pencil".
-    const CLIENT_NONCE: &[u8] = b"rOprNGfwEbeRWgbNEkqO";
-    const CLIENT_FIRST: &str = "n,,n=user,r=rOprNGfwEbeRWgbNEkqO";
+    const CLIENT_NONCE: &[u8] = b"fyko+d2lbbFgONRv9qkxdawL";
+    const CLIENT_FIRST: &str = "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL";
     const SERVER_FIRST: &str =
-        "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
-    const CLIENT_FINAL: &str = "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=";
-    const SERVER_FINAL: &str = "v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
+        "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096";
+    const CLIENT_FINAL: &str =
+        "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts=";
+    const SERVER_FINAL: &str = "v=rmF9pqV8S7suAoZWja4dJRkFsKQ=";
 
     #[test]
-    fn exchange_matches_the_rfc_7677_test_vector() {
-        let mut auth = SaslScramSha256::new(creds());
+    fn exchange_matches_the_rfc_5802_test_vector() {
+        let mut auth = SaslScramSha1::new(creds());
 
         assert_eq!(
             respond(&mut auth, SaslResume::Start),
@@ -133,11 +140,11 @@ mod tests {
 
     #[test]
     fn the_profile_answers_to_both_names_it_is_registered_under() {
-        let plain = SaslScramSha256::new(creds());
+        let plain = SaslScramSha1::new(creds());
 
-        assert_eq!(plain.mechanism(), SaslMechanism::ScramSha256);
+        assert_eq!(plain.mechanism(), SaslMechanism::ScramSha1);
 
-        let bound = SaslScramSha256::new(SaslScramCreds {
+        let bound = SaslScramSha1::new(SaslScramCreds {
             channel_binding: SaslScramChannelBinding::Bound {
                 kind: SaslScramChannelBindingKind::TlsExporter,
                 data: b"binding".to_vec(),
@@ -145,7 +152,7 @@ mod tests {
             ..creds()
         });
 
-        assert_eq!(bound.mechanism(), SaslMechanism::ScramSha256Plus);
+        assert_eq!(bound.mechanism(), SaslMechanism::ScramSha1Plus);
     }
 
     fn creds() -> SaslScramCreds {
@@ -157,7 +164,7 @@ mod tests {
         }
     }
 
-    fn respond(auth: &mut SaslScramSha256, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslScramSha1, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

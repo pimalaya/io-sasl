@@ -21,23 +21,40 @@
 //! command grammars, their continuation requests and their reply
 //! codes, and share the mechanisms.
 //!
-//! Six mechanisms are implemented, all client-side: ANONYMOUS, LOGIN,
-//! PLAIN, OAUTHBEARER, XOAUTH2 and SCRAM-SHA-256. Server-side SASL,
-//! channel binding and the GSSAPI family are out of scope.
+//! Every mechanism is client-side, and the set is the registered ones a
+//! client can run without an external security library: ANONYMOUS,
+//! EXTERNAL, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM profiles
+//! SHA-1, SHA-256 and SHA-512, each of those under both the name it is
+//! registered with and the `-PLUS` name it takes when a channel binding
+//! is in use. Server-side SASL is out of scope, and so is the GSSAPI
+//! family: its tokens come from a Kerberos implementation that reads a
+//! credential cache and talks to a KDC, which is I/O this crate cannot
+//! host and cannot hoist into its credentials either.
 //!
 //! ## Layout
 //!
 //! One module per RFC where one exists, and a root module for the
 //! mechanisms that never got one:
 //!
+//! - [`rfc4422::external`], the EXTERNAL mechanism, defined by the SASL
+//!   framework itself
 //! - [`rfc4505::anonymous`], the ANONYMOUS mechanism
 //! - [`rfc4616::plain`], the PLAIN mechanism
+//! - [`rfc5802`], the SCRAM family and its SHA-1 profile
+//!   ([`rfc5802::scram_sha_1`], behind the `scram-sha-1` cargo feature)
 //! - [`rfc7628::oauthbearer`], the OAUTHBEARER mechanism
-//! - [`rfc7677::scram_sha_256`], the SCRAM-SHA-256 mechanism, behind
-//!   the `scram` cargo feature, which pulls in the HMAC, PBKDF2,
-//!   SHA-256 and base64 crates the algorithm needs
+//! - [`rfc7677::scram_sha_256`], the SHA-256 profile of SCRAM
 //! - [`login`], the LOGIN mechanism (draft-murchison-sasl-login)
+//! - [`scram_sha_512`], the SHA-512 profile of SCRAM
+//!   (draft-melnikov-scram-sha-512)
 //! - [`xoauth2`], the XOAUTH2 mechanism (Google, pre-standard)
+//!
+//! Everything SCRAM sits behind the `scram` cargo feature, which pulls
+//! in the HMAC, PBKDF2, SHA-2 and base64 crates the algorithm needs, and
+//! the SHA-1 profile behind `scram-sha-1` on top, since it is the one
+//! that pulls another digest crate. The exchange itself is written once,
+//! in [`rfc5802::SaslScram`]: a profile module is its digest, the two
+//! names it is registered under, and the test vector it is pinned by.
 //!
 //! Each mechanism module opens with a runnable example driving its
 //! exchange step by step, which is the shortest description of what a
@@ -59,7 +76,7 @@
 //! the vocabulary tying them together: [`mechanism::SaslMechanism`]
 //! tags a mechanism without its credentials, which is what a consumer
 //! matches a server capability list against, and [`mechanism::Sasl`]
-//! pairs a tag with the credentials of one, gathering the six structs
+//! pairs a tag with the credentials of one, gathering those structs
 //! into the closed set a protocol crate dispatches on.
 //!
 //! ## The coroutine contract
@@ -72,7 +89,7 @@
 //! challenge, because "the peer ended the exchange" has to stay
 //! distinguishable from "here is a challenge". On
 //! [`coroutine::SaslResume::PeerFinished`] the one-shot mechanisms
-//! complete `Ok`, while SCRAM-SHA-256 completes `Err` whenever the
+//! complete `Ok`, while every SCRAM profile completes `Err` whenever the
 //! server signature has not been verified yet. Were the protocol crate
 //! deciding for itself when an exchange ends, PLAIN and SCRAM would
 //! look identical from outside, send then await the success reply, and
@@ -87,7 +104,7 @@
 //! server can be trusted to accept it, is the protocol crate's
 //! decision, not this crate's. A mechanism answering
 //! [`coroutine::SaslYield::WantsChallenge`] is server-first instead;
-//! none of the six are, but the vocabulary expresses it.
+//! none of the mechanisms here is, but the vocabulary expresses it.
 //!
 //! ## Boundaries
 //!
@@ -109,14 +126,16 @@
 //! part of the algorithm rather than of the transport and lives with
 //! SCRAM-SHA-256.
 //!
-//! Randomness belongs to the caller. SCRAM-SHA-256 reads its client
-//! nonce off the credentials it is built from, since an I/O-free
-//! mechanism cannot generate entropy, and the exchange stays
-//! deterministically testable against the published test vectors.
-//! Keeping the nonce with the other credentials rather than beside them
-//! means a protocol crate holding a [`mechanism::Sasl`] always has
-//! everything the exchange needs, so there is no mechanism for which it
-//! could forget to pass something.
+//! Randomness belongs to the caller, and so does the TLS session. SCRAM
+//! reads its client nonce off the credentials it is built from, since an
+//! I/O-free mechanism cannot generate entropy, and reads its channel
+//! binding off them too, since asking a TLS session what it exported is
+//! not something this crate can do either. Both stay with the other
+//! credentials rather than beside them, so a protocol crate holding a
+//! [`mechanism::Sasl`] always has everything the exchange needs and
+//! there is no mechanism for which it could forget to pass something.
+//! The exchange also stays deterministically testable against the
+//! published vectors.
 //!
 //! ## Conventions
 //!
@@ -142,10 +161,17 @@ extern crate alloc;
 pub mod coroutine;
 pub mod login;
 pub mod mechanism;
+pub mod rfc4422;
 pub mod rfc4505;
 pub mod rfc4616;
+#[cfg(feature = "scram")]
+#[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
+pub mod rfc5802;
 pub mod rfc7628;
 #[cfg(feature = "scram")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
 pub mod rfc7677;
+#[cfg(feature = "scram")]
+#[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
+pub mod scram_sha_512;
 pub mod xoauth2;

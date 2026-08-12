@@ -27,7 +27,8 @@ use base64::{Engine, engine::general_purpose::STANDARD as base64};
 use hmac::{Hmac, KeyInit, Mac};
 use io_sasl::{
     coroutine::*,
-    rfc7677::scram_sha_256::{SaslScramSha256, SaslScramSha256Error, SaslScramSha256Creds},
+    rfc5802::{SaslScramChannelBinding, SaslScramCreds, SaslScramError},
+    rfc7677::scram_sha_256::SaslScramSha256,
 };
 use libfuzzer_sys::fuzz_target;
 use pbkdf2::pbkdf2_hmac;
@@ -82,10 +83,14 @@ impl Exchange {
     /// Drives the mechanism through the scripted server messages,
     /// checking every acceptance against the harness's own arithmetic.
     fn run(&self) {
-        let creds = SaslScramSha256Creds {
+        // NOTE: the oracle recomputes the signature over the GS2 header
+        // it watched go out, so an unbound exchange is what keeps that
+        // arithmetic independent of the binding this crate assembles.
+        let creds = SaslScramCreds {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
             nonce: self.nonce.clone(),
+            channel_binding: SaslScramChannelBinding::Unsupported,
         };
 
         let mut auth = SaslScramSha256::new(creds);
@@ -212,7 +217,7 @@ impl Oracle {
 
     /// Checks the terminal step: success means the server proved
     /// itself, and the harness has to have watched it happen.
-    fn completed(&self, completed: Result<(), SaslScramSha256Error>) {
+    fn completed(&self, completed: Result<(), SaslScramError>) {
         if completed.is_err() {
             return;
         }

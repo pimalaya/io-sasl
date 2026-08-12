@@ -2,7 +2,7 @@
 //!
 //! The unit tests pin each mechanism's payloads against its own
 //! specification, one mechanism at a time. What they cannot pin is the
-//! part io-imap and io-smtp actually depend on: that all six mechanisms
+//! part io-imap and io-smtp actually depend on: that every mechanism
 //! behave identically at the edges of an exchange, so a single generic
 //! driver can carry every one of them. So everything here goes through
 //! the public API only, and every test is a property over the whole
@@ -13,7 +13,7 @@
 //! Three of those properties are load-bearing. Every mechanism answers
 //! the first resume with a response, which is what lets a protocol
 //! decide whether to inline it as an initial response. Every mechanism
-//! completes on `PeerFinished`, and SCRAM-SHA-256 completes `Err` on it
+//! completes on `PeerFinished`, and a SCRAM profile completes `Err` on it
 //! unless the server signature was verified, which is what stops mutual
 //! authentication from being skipped by omission. And a challenge
 //! arriving after a mechanism has said its last word fails everywhere,
@@ -25,6 +25,7 @@ use io_sasl::{
     coroutine::*,
     login::{SaslLogin, SaslLoginCreds},
     mechanism::SaslMechanism,
+    rfc4422::external::{SaslExternal, SaslExternalCreds},
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
@@ -33,9 +34,16 @@ use io_sasl::{
 use secrecy::SecretString;
 
 #[cfg(feature = "scram")]
-use io_sasl::rfc7677::scram_sha_256::{
-    SaslScramSha256, SaslScramSha256Creds, SaslScramSha256Error,
+use io_sasl::{
+    rfc5802::{
+        SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds, SaslScramError,
+    },
+    rfc7677::scram_sha_256::SaslScramSha256,
+    scram_sha_512::SaslScramSha512,
 };
+
+#[cfg(feature = "scram-sha-1")]
+use io_sasl::rfc5802::scram_sha_1::SaslScramSha1;
 
 #[test]
 fn every_mechanism_answers_start_with_an_initial_response() {
@@ -110,7 +118,10 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
     // the server-final-message never fed back. The last one is the case
     // both duplicated implementations got wrong.
     for sent in 0..3 {
-        let mut auth = SaslScramSha256::new(scram_creds());
+        let mut auth = SaslScramSha256::new(scram_creds(
+            CLIENT_NONCE,
+            SaslScramChannelBinding::Unsupported,
+        ));
 
         let prefix = [SaslResume::Start, SaslResume::Challenge(SERVER_FIRST)];
 
@@ -121,7 +132,7 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
         let completed = auth.resume(SaslResume::PeerFinished);
         let refused = matches!(
             completed,
-            SaslCoroutineState::Complete(Err(SaslScramSha256Error::ServerSignatureNotVerified)),
+            SaslCoroutineState::Complete(Err(SaslScramError::ServerSignatureNotVerified)),
         );
 
         assert!(
@@ -187,7 +198,7 @@ enum Expect {
 
 /// One mechanism driven through the object-safe half of its contract.
 ///
-/// The six mechanisms have six unrelated error types, so a table over
+/// The mechanisms have unrelated error types, so a table over
 /// all of them cannot name a single [`SaslCoroutine`]. Rendering the
 /// error to its message erases the difference, and the message is what
 /// a protocol crate surfaces anyway.
@@ -227,11 +238,17 @@ where
 fn authenticates_the_server(mechanism: SaslMechanism) -> bool {
     match mechanism {
         SaslMechanism::Anonymous => false,
+        SaslMechanism::External => false,
         SaslMechanism::Login => false,
         SaslMechanism::Plain => false,
         SaslMechanism::OAuthBearer => false,
         SaslMechanism::XOAuth2 => false,
+        SaslMechanism::ScramSha1 => true,
+        SaslMechanism::ScramSha1Plus => true,
         SaslMechanism::ScramSha256 => true,
+        SaslMechanism::ScramSha256Plus => true,
+        SaslMechanism::ScramSha512 => true,
+        SaslMechanism::ScramSha512Plus => true,
     }
 }
 
@@ -262,10 +279,20 @@ fn exchanges() -> Vec<Exchange> {
         username: "someuser@example.com".into(),
         token: SecretString::from("vF9dft4qmT"),
     };
+    let external = SaslExternalCreds {
+        authzid: Some("alice@localhost".into()),
+    };
 
     let mut exchanges: Vec<Exchange> = vec![
         (
             Box::new(SaslAnonymous::new(anonymous)),
+            vec![
+                (SaslResume::Start, Expect::Responds(b"alice@localhost")),
+                (SaslResume::PeerFinished, Expect::CompletesOk),
+            ],
+        ),
+        (
+            Box::new(SaslExternal::new(external)),
             vec![
                 (SaslResume::Start, Expect::Responds(b"alice@localhost")),
                 (SaslResume::PeerFinished, Expect::CompletesOk),
@@ -318,7 +345,9 @@ fn exchanges() -> Vec<Exchange> {
 }
 
 // NOTE: the exchange published in RFC 7677 section 3, for the user
-// "user" with the password "pencil".
+// "user" with the password "pencil". The SHA-512 and -PLUS answers to
+// it were derived from the RFC 5802 algorithm outside this crate, since
+// no specification publishes either.
 #[cfg(feature = "scram")]
 const CLIENT_NONCE: &[u8] = b"rOprNGfwEbeRWgbNEkqO";
 #[cfg(feature = "scram")]
@@ -332,19 +361,77 @@ const CLIENT_FINAL: &[u8] = b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIl
 const SERVER_FINAL: &[u8] = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
 
 #[cfg(feature = "scram")]
+const SHA512_CLIENT_FINAL: &[u8] = b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=gMGXRcevScNtxZ6/8lQYpGtnsNAc3mGcmNomv+xnoOMw+3R2xNJdMNnzMlTN8PPC6wdp6dybEmDYXYTxwnYPJQ==";
+#[cfg(feature = "scram")]
+const SHA512_SERVER_FINAL: &[u8] =
+    b"v=ZQnYEgWQMFmmsM8aQMF0nDDCy/AgCzkwk8CmMZYcMg0vSVlKDanekLtifDSeVGT4+5ZxXnJq199RVG2rR7N7Zw==";
+
+#[cfg(feature = "scram")]
+const BOUND_CLIENT_FIRST: &[u8] = b"p=tls-exporter,,n=user,r=rOprNGfwEbeRWgbNEkqO";
+#[cfg(feature = "scram")]
+const BOUND_CLIENT_FINAL: &[u8] = b"c=cD10bHMtZXhwb3J0ZXIsLAABAgMEBQYH,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=QAd7eifevIt6X/f2Cv9W4HLXcFLw7OayX8dQ2scckyI=";
+#[cfg(feature = "scram")]
+const BOUND_SERVER_FINAL: &[u8] = b"v=8dbpxwe4DaC4ESpY8u6aAvFeP2ks9+LClF/ADCxyWOE=";
+
+// NOTE: the exchange published in RFC 5802 section 5, the only one the
+// SHA-1 profile has of its own.
+#[cfg(feature = "scram-sha-1")]
+const SHA1_CLIENT_NONCE: &[u8] = b"fyko+d2lbbFgONRv9qkxdawL";
+#[cfg(feature = "scram-sha-1")]
+const SHA1_CLIENT_FIRST: &[u8] = b"n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL";
+#[cfg(feature = "scram-sha-1")]
+const SHA1_SERVER_FIRST: &[u8] =
+    b"r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096";
+#[cfg(feature = "scram-sha-1")]
+const SHA1_CLIENT_FINAL: &[u8] =
+    b"c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts=";
+#[cfg(feature = "scram-sha-1")]
+const SHA1_SERVER_FINAL: &[u8] = b"v=rmF9pqV8S7suAoZWja4dJRkFsKQ=";
+
+#[cfg(feature = "scram")]
 fn scram_exchange() -> Vec<Exchange> {
-    vec![(
-        Box::new(SaslScramSha256::new(scram_creds())),
-        vec![
-            (SaslResume::Start, Expect::Responds(CLIENT_FIRST)),
-            (
-                SaslResume::Challenge(SERVER_FIRST),
-                Expect::Responds(CLIENT_FINAL),
+    let bound = SaslScramChannelBinding::Bound {
+        kind: SaslScramChannelBindingKind::TlsExporter,
+        data: (0..8).collect(),
+    };
+
+    let mut exchanges: Vec<Exchange> = vec![
+        (
+            Box::new(SaslScramSha256::new(scram_creds(
+                CLIENT_NONCE,
+                SaslScramChannelBinding::Unsupported,
+            ))),
+            scram_script(CLIENT_FIRST, SERVER_FIRST, CLIENT_FINAL, SERVER_FINAL),
+        ),
+        (
+            Box::new(SaslScramSha512::new(scram_creds(
+                CLIENT_NONCE,
+                SaslScramChannelBinding::Unsupported,
+            ))),
+            scram_script(
+                CLIENT_FIRST,
+                SERVER_FIRST,
+                SHA512_CLIENT_FINAL,
+                SHA512_SERVER_FINAL,
             ),
-            (SaslResume::Challenge(SERVER_FINAL), Expect::Responds(b"")),
-            (SaslResume::PeerFinished, Expect::CompletesOk),
-        ],
-    )]
+        ),
+        // NOTE: the -PLUS name is not a mechanism of its own here, it is
+        // the same coroutine with a binding in its credentials, so the
+        // properties above cover it only if a bound exchange is in the
+        // table too.
+        (
+            Box::new(SaslScramSha256::new(scram_creds(CLIENT_NONCE, bound))),
+            scram_script(
+                BOUND_CLIENT_FIRST,
+                SERVER_FIRST,
+                BOUND_CLIENT_FINAL,
+                BOUND_SERVER_FINAL,
+            ),
+        ),
+    ];
+
+    exchanges.extend(scram_sha_1_exchange());
+    exchanges
 }
 
 #[cfg(not(feature = "scram"))]
@@ -352,11 +439,53 @@ fn scram_exchange() -> Vec<Exchange> {
     Vec::new()
 }
 
+#[cfg(feature = "scram-sha-1")]
+fn scram_sha_1_exchange() -> Vec<Exchange> {
+    vec![(
+        Box::new(SaslScramSha1::new(scram_creds(
+            SHA1_CLIENT_NONCE,
+            SaslScramChannelBinding::Unsupported,
+        ))),
+        scram_script(
+            SHA1_CLIENT_FIRST,
+            SHA1_SERVER_FIRST,
+            SHA1_CLIENT_FINAL,
+            SHA1_SERVER_FINAL,
+        ),
+    )]
+}
+
+#[cfg(all(feature = "scram", not(feature = "scram-sha-1")))]
+fn scram_sha_1_exchange() -> Vec<Exchange> {
+    Vec::new()
+}
+
+/// The four steps every SCRAM profile runs, which differ only in the
+/// bytes each digest produces.
 #[cfg(feature = "scram")]
-fn scram_creds() -> SaslScramSha256Creds {
-    SaslScramSha256Creds {
+fn scram_script(
+    client_first: &'static [u8],
+    server_first: &'static [u8],
+    client_final: &'static [u8],
+    server_final: &'static [u8],
+) -> Vec<(SaslResume<'static>, Expect)> {
+    vec![
+        (SaslResume::Start, Expect::Responds(client_first)),
+        (
+            SaslResume::Challenge(server_first),
+            Expect::Responds(client_final),
+        ),
+        (SaslResume::Challenge(server_final), Expect::Responds(b"")),
+        (SaslResume::PeerFinished, Expect::CompletesOk),
+    ]
+}
+
+#[cfg(feature = "scram")]
+fn scram_creds(nonce: &[u8], channel_binding: SaslScramChannelBinding) -> SaslScramCreds {
+    SaslScramCreds {
         username: "user".into(),
         password: SecretString::from("pencil"),
-        nonce: CLIENT_NONCE.to_vec(),
+        nonce: nonce.to_vec(),
+        channel_binding,
     }
 }

@@ -11,12 +11,13 @@
 //! [SASL]: https://www.rfc-editor.org/rfc/rfc4422
 
 use crate::{
-    login::SaslLoginCreds, rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
+    login::SaslLoginCreds, rfc4422::external::SaslExternalCreds,
+    rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
     rfc7628::oauthbearer::SaslOauthbearerCreds, xoauth2::SaslXoauth2Creds,
 };
 
 #[cfg(feature = "scram")]
-use crate::rfc7677::scram_sha_256::SaslScramSha256Creds;
+use crate::rfc5802::SaslScramCreds;
 
 /// Tag identifying a SASL mechanism without its credentials.
 ///
@@ -27,6 +28,8 @@ use crate::rfc7677::scram_sha_256::SaslScramSha256Creds;
 pub enum SaslMechanism {
     /// The ANONYMOUS mechanism (RFC 4505).
     Anonymous,
+    /// The EXTERNAL mechanism (RFC 4422 appendix A).
+    External,
     /// The legacy LOGIN mechanism.
     Login,
     /// The PLAIN mechanism (RFC 4616).
@@ -35,8 +38,19 @@ pub enum SaslMechanism {
     OAuthBearer,
     /// The pre-standard Google XOAUTH2 mechanism.
     XOAuth2,
+    /// The SCRAM-SHA-1 mechanism (RFC 5802).
+    ScramSha1,
+    /// The SCRAM-SHA-1 mechanism with channel binding (RFC 5802).
+    ScramSha1Plus,
     /// The SCRAM-SHA-256 mechanism (RFC 7677).
     ScramSha256,
+    /// The SCRAM-SHA-256 mechanism with channel binding (RFC 7677).
+    ScramSha256Plus,
+    /// The SCRAM-SHA-512 mechanism (draft-melnikov-scram-sha-512).
+    ScramSha512,
+    /// The SCRAM-SHA-512 mechanism with channel binding
+    /// (draft-melnikov-scram-sha-512).
+    ScramSha512Plus,
 }
 
 impl SaslMechanism {
@@ -45,11 +59,17 @@ impl SaslMechanism {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Anonymous => "ANONYMOUS",
+            Self::External => "EXTERNAL",
             Self::Login => "LOGIN",
             Self::Plain => "PLAIN",
             Self::OAuthBearer => "OAUTHBEARER",
             Self::XOAuth2 => "XOAUTH2",
+            Self::ScramSha1 => "SCRAM-SHA-1",
+            Self::ScramSha1Plus => "SCRAM-SHA-1-PLUS",
             Self::ScramSha256 => "SCRAM-SHA-256",
+            Self::ScramSha256Plus => "SCRAM-SHA-256-PLUS",
+            Self::ScramSha512 => "SCRAM-SHA-512",
+            Self::ScramSha512Plus => "SCRAM-SHA-512-PLUS",
         }
     }
 }
@@ -60,10 +80,19 @@ impl SaslMechanism {
 /// credentials describe an exchange this build cannot run: a consumer
 /// mapping a configuration onto the enum reports the missing feature
 /// where the user can act on it.
+///
+/// The `-PLUS` mechanisms have no variant of their own. A SCRAM profile
+/// is one exchange registered under two names, and which name it runs
+/// under follows from the
+/// [`channel_binding`](crate::rfc5802::SaslScramCreds::channel_binding)
+/// the credentials carry, so the variant names the profile and the
+/// credentials name the binding.
 #[derive(Clone, Debug)]
 pub enum Sasl {
     /// ANONYMOUS credentials.
     Anonymous(SaslAnonymousCreds),
+    /// EXTERNAL credentials.
+    External(SaslExternalCreds),
     /// LOGIN credentials.
     Login(SaslLoginCreds),
     /// PLAIN credentials.
@@ -72,15 +101,29 @@ pub enum Sasl {
     Oauthbearer(SaslOauthbearerCreds),
     /// XOAUTH2 credentials.
     Xoauth2(SaslXoauth2Creds),
-    /// SCRAM-SHA-256 credentials.
+    /// SCRAM-SHA-1 credentials, plain or `-PLUS`.
+    #[cfg(feature = "scram-sha-1")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "scram-sha-1")))]
+    ScramSha1(SaslScramCreds),
+    /// SCRAM-SHA-256 credentials, plain or `-PLUS`.
     #[cfg(feature = "scram")]
     #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
-    ScramSha256(SaslScramSha256Creds),
+    ScramSha256(SaslScramCreds),
+    /// SCRAM-SHA-512 credentials, plain or `-PLUS`.
+    #[cfg(feature = "scram")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
+    ScramSha512(SaslScramCreds),
 }
 
 impl From<SaslAnonymousCreds> for Sasl {
     fn from(sasl: SaslAnonymousCreds) -> Self {
         Self::Anonymous(sasl)
+    }
+}
+
+impl From<SaslExternalCreds> for Sasl {
+    fn from(sasl: SaslExternalCreds) -> Self {
+        Self::External(sasl)
     }
 }
 
@@ -108,12 +151,9 @@ impl From<SaslXoauth2Creds> for Sasl {
     }
 }
 
-#[cfg(feature = "scram")]
-impl From<SaslScramSha256Creds> for Sasl {
-    fn from(sasl: SaslScramSha256Creds) -> Self {
-        Self::ScramSha256(sasl)
-    }
-}
+// NOTE: the three SCRAM profiles share one credential struct, so there
+// is no From impl for it: the profile is the caller's choice, and an
+// impl would have to guess which of the three variants it meant.
 
 #[cfg(test)]
 mod tests {
@@ -122,19 +162,19 @@ mod tests {
     use secrecy::SecretString;
 
     use crate::{
-        login::SaslLoginCreds, mechanism::*, rfc4505::anonymous::SaslAnonymousCreds,
-        rfc4616::plain::SaslPlainCreds, rfc7628::oauthbearer::SaslOauthbearerCreds,
-        xoauth2::SaslXoauth2Creds,
+        login::SaslLoginCreds, mechanism::*, rfc4422::external::SaslExternalCreds,
+        rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
+        rfc7628::oauthbearer::SaslOauthbearerCreds, xoauth2::SaslXoauth2Creds,
     };
 
     #[cfg(feature = "scram")]
-    use crate::rfc7677::scram_sha_256::SaslScramSha256Creds;
+    use crate::rfc5802::{SaslScramChannelBinding, SaslScramCreds};
 
     #[test]
     fn every_mechanism_spells_the_name_it_is_registered_under() {
         let mut named = Vec::new();
 
-        for (mechanism, _, name) in vocabulary() {
+        for (mechanism, name) in names() {
             assert_eq!(mechanism.as_str(), name, "{mechanism:?}");
 
             assert!(
@@ -147,34 +187,60 @@ mod tests {
     }
 
     #[test]
-    fn every_credential_type_converts_into_its_own_variant() {
-        let mut converted = Vec::new();
+    fn every_credential_type_lands_in_its_own_variant() {
+        let mut occupied = Vec::new();
 
-        for (mechanism, sasl, _) in vocabulary() {
+        for (mechanism, sasl) in vocabulary() {
             assert_eq!(variant(&sasl), mechanism, "{mechanism:?}");
 
             assert!(
-                !converted.contains(&mechanism),
+                !occupied.contains(&mechanism),
                 "{mechanism:?} shares its variant with another credential type"
             );
 
-            converted.push(mechanism);
+            occupied.push(mechanism);
         }
     }
 
-    /// The whole vocabulary: every tag, the credentials converting into
-    /// it, and the name of the IANA SASL mechanism registry.
+    /// Every tag against the name it is registered under with IANA.
     ///
-    /// One table walked twice rather than a test per mechanism, because
-    /// the mistake six near-identical arms actually make is not a
+    /// One table walked rather than a test per mechanism, because the
+    /// mistake a dozen near-identical arms actually make is not a
     /// missing one, it is two of them landing on the same place, which
-    /// only a walk over all of them can see.
-    fn vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
+    /// only a walk over all of them can see. The table is whole
+    /// whatever the build enables, since so is the tag.
+    fn names() -> [(SaslMechanism, &'static str); 12] {
+        [
+            (SaslMechanism::Anonymous, "ANONYMOUS"),
+            (SaslMechanism::External, "EXTERNAL"),
+            (SaslMechanism::Login, "LOGIN"),
+            (SaslMechanism::Plain, "PLAIN"),
+            (SaslMechanism::OAuthBearer, "OAUTHBEARER"),
+            (SaslMechanism::XOAuth2, "XOAUTH2"),
+            (SaslMechanism::ScramSha1, "SCRAM-SHA-1"),
+            (SaslMechanism::ScramSha1Plus, "SCRAM-SHA-1-PLUS"),
+            (SaslMechanism::ScramSha256, "SCRAM-SHA-256"),
+            (SaslMechanism::ScramSha256Plus, "SCRAM-SHA-256-PLUS"),
+            (SaslMechanism::ScramSha512, "SCRAM-SHA-512"),
+            (SaslMechanism::ScramSha512Plus, "SCRAM-SHA-512-PLUS"),
+        ]
+    }
+
+    /// Every mechanism this build carries credentials for, paired with
+    /// the [`Sasl`] those credentials belong in.
+    ///
+    /// The `-PLUS` names are absent by construction: they share their
+    /// profile's variant and differ only by the channel binding the
+    /// credentials carry.
+    fn vocabulary() -> Vec<(SaslMechanism, Sasl)> {
         let mut vocabulary = vec![
             (
                 SaslMechanism::Anonymous,
                 SaslAnonymousCreds { message: None }.into(),
-                "ANONYMOUS",
+            ),
+            (
+                SaslMechanism::External,
+                SaslExternalCreds { authzid: None }.into(),
             ),
             (
                 SaslMechanism::Login,
@@ -183,7 +249,6 @@ mod tests {
                     password: SecretString::from("pencil"),
                 }
                 .into(),
-                "LOGIN",
             ),
             (
                 SaslMechanism::Plain,
@@ -193,7 +258,6 @@ mod tests {
                     passwd: SecretString::from("pencil"),
                 }
                 .into(),
-                "PLAIN",
             ),
             (
                 SaslMechanism::OAuthBearer,
@@ -204,7 +268,6 @@ mod tests {
                     token: SecretString::from("vF9dft4qmT"),
                 }
                 .into(),
-                "OAUTHBEARER",
             ),
             (
                 SaslMechanism::XOAuth2,
@@ -213,7 +276,6 @@ mod tests {
                     token: SecretString::from("vF9dft4qmT"),
                 }
                 .into(),
-                "XOAUTH2",
             ),
         ];
 
@@ -222,22 +284,31 @@ mod tests {
     }
 
     #[cfg(feature = "scram")]
-    fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
-        vec![(
-            SaslMechanism::ScramSha256,
-            SaslScramSha256Creds {
-                username: "alice".into(),
-                password: SecretString::from("pencil"),
-                nonce: vec![],
-            }
-            .into(),
-            "SCRAM-SHA-256",
-        )]
+    fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl)> {
+        let mut vocabulary = vec![
+            (SaslMechanism::ScramSha256, Sasl::ScramSha256(scram_creds())),
+            (SaslMechanism::ScramSha512, Sasl::ScramSha512(scram_creds())),
+        ];
+
+        #[cfg(feature = "scram-sha-1")]
+        vocabulary.push((SaslMechanism::ScramSha1, Sasl::ScramSha1(scram_creds())));
+
+        vocabulary
     }
 
     #[cfg(not(feature = "scram"))]
-    fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
+    fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl)> {
         Vec::new()
+    }
+
+    #[cfg(feature = "scram")]
+    fn scram_creds() -> SaslScramCreds {
+        SaslScramCreds {
+            username: "alice".into(),
+            password: SecretString::from("pencil"),
+            nonce: vec![],
+            channel_binding: SaslScramChannelBinding::Unsupported,
+        }
     }
 
     /// The tag of the variant a [`Sasl`] settled in.
@@ -249,12 +320,17 @@ mod tests {
     fn variant(sasl: &Sasl) -> SaslMechanism {
         match sasl {
             Sasl::Anonymous(_) => SaslMechanism::Anonymous,
+            Sasl::External(_) => SaslMechanism::External,
             Sasl::Login(_) => SaslMechanism::Login,
             Sasl::Plain(_) => SaslMechanism::Plain,
             Sasl::Oauthbearer(_) => SaslMechanism::OAuthBearer,
             Sasl::Xoauth2(_) => SaslMechanism::XOAuth2,
+            #[cfg(feature = "scram-sha-1")]
+            Sasl::ScramSha1(_) => SaslMechanism::ScramSha1,
             #[cfg(feature = "scram")]
             Sasl::ScramSha256(_) => SaslMechanism::ScramSha256,
+            #[cfg(feature = "scram")]
+            Sasl::ScramSha512(_) => SaslMechanism::ScramSha512,
         }
     }
 }

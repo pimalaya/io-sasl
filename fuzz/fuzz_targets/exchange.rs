@@ -1,6 +1,6 @@
 #![no_main]
 
-//! Coverage-guided fuzz target for the six mechanisms. One oracle,
+//! Coverage-guided fuzz target for every mechanism. One oracle,
 //! applied uniformly: whatever a peer says, at whatever point it says
 //! it, a mechanism must answer or fail, never panic.
 //!
@@ -19,10 +19,16 @@ use arbitrary::Arbitrary;
 use io_sasl::{
     coroutine::*,
     login::{SaslLogin, SaslLoginCreds},
-    rfc4505::anonymous::{SaslAnonymousCreds, SaslAnonymous},
+    rfc4422::external::{SaslExternal, SaslExternalCreds},
+    rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
+    rfc5802::{
+        SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds,
+        scram_sha_1::SaslScramSha1,
+    },
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
-    rfc7677::scram_sha_256::{SaslScramSha256, SaslScramSha256Creds},
+    rfc7677::scram_sha_256::SaslScramSha256,
+    scram_sha_512::SaslScramSha512,
     xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
 use libfuzzer_sys::fuzz_target;
@@ -46,6 +52,7 @@ struct Exchange {
     host: String,
     port: u16,
     nonce: Vec<u8>,
+    binding: Vec<u8>,
     challenges: Vec<Vec<u8>>,
     peer_finishes: bool,
 }
@@ -55,25 +62,37 @@ fuzz_target!(|exchange: Exchange| {
 
     // A peer challenging a mechanism that has said nothing yet.
     unstarted(SaslAnonymous::new(exchange.anonymous()), &first);
+    unstarted(SaslExternal::new(exchange.external()), &first);
     unstarted(SaslLogin::new(exchange.login()), &first);
     unstarted(SaslPlain::new(exchange.plain()), &first);
     unstarted(SaslOauthbearer::new(exchange.oauthbearer()), &first);
     unstarted(SaslXoauth2::new(exchange.xoauth2()), &first);
 
     if affordable(&first) {
-        unstarted(SaslScramSha256::new(exchange.scram()), &first);
+        unstarted(SaslScramSha1::new(exchange.scram(false)), &first);
+        unstarted(SaslScramSha256::new(exchange.scram(false)), &first);
+        unstarted(SaslScramSha512::new(exchange.scram(false)), &first);
     }
 
     // The same peer answering a mechanism driven from its initial
     // response, as a protocol crate drives it.
     exchange.drive(SaslAnonymous::new(exchange.anonymous()));
+    exchange.drive(SaslExternal::new(exchange.external()));
     exchange.drive(SaslLogin::new(exchange.login()));
     exchange.drive(SaslPlain::new(exchange.plain()));
     exchange.drive(SaslOauthbearer::new(exchange.oauthbearer()));
     exchange.drive(SaslXoauth2::new(exchange.xoauth2()));
 
     if exchange.challenges.iter().all(|c| affordable(c)) {
-        exchange.drive(SaslScramSha256::new(exchange.scram()));
+        // NOTE: every profile is driven both plain and bound, since the
+        // binding reaches the wire twice, in the GS2 header and in the
+        // c= field of a message the proof is computed over.
+        exchange.drive(SaslScramSha1::new(exchange.scram(false)));
+        exchange.drive(SaslScramSha1::new(exchange.scram(true)));
+        exchange.drive(SaslScramSha256::new(exchange.scram(false)));
+        exchange.drive(SaslScramSha256::new(exchange.scram(true)));
+        exchange.drive(SaslScramSha512::new(exchange.scram(false)));
+        exchange.drive(SaslScramSha512::new(exchange.scram(true)));
     }
 });
 
@@ -135,11 +154,27 @@ impl Exchange {
         }
     }
 
-    fn scram(&self) -> SaslScramSha256Creds {
-        SaslScramSha256Creds {
+    fn external(&self) -> SaslExternalCreds {
+        SaslExternalCreds {
+            authzid: Some(self.username.clone()),
+        }
+    }
+
+    fn scram(&self, bound: bool) -> SaslScramCreds {
+        let channel_binding = if bound {
+            SaslScramChannelBinding::Bound {
+                kind: SaslScramChannelBindingKind::TlsExporter,
+                data: self.binding.clone(),
+            }
+        } else {
+            SaslScramChannelBinding::Unsupported
+        };
+
+        SaslScramCreds {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
             nonce: self.nonce.clone(),
+            channel_binding,
         }
     }
 }
