@@ -11,6 +11,12 @@ Whether you are a human or an AI agent, read these in order before touching the 
 
 Everything below documents only what differs from the Pimalaya standards.
 
+## Type naming
+
+A mechanism names its coroutine, its failure type and its credential struct after itself and nothing else: `SaslPlain`, `SaslPlainError`, `SaslPlainCreds`. The naming canon would put an `Auth` verb on the coroutine, as io-imap does with `ImapAuthPlain`, and this crate drops it: io-imap needs the verb because it also carries coroutines that authenticate nothing, while here every item is an authentication exchange, so a verb none of them can be told apart by is noise. `Creds` carries the distinction instead, and it reads the right way round, since the credentials are the data and the coroutine is the machine.
+
+This is a local exception, not a rule change. A new mechanism follows it; anything outside this crate follows the canon.
+
 ## Feature matrix
 
 The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. The only cargo feature is `scram`, which is enabled by default and pulls in the HMAC, PBKDF2, SHA-256 and base64 crates that SCRAM-SHA-256 needs. Build both shapes, since the reduced one is what a consumer picks when it only speaks the cleartext and OAuth mechanisms.

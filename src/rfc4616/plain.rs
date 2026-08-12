@@ -10,11 +10,11 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     rfc4616::plain::{SaslAuthPlain, SaslPlain},
+//!     rfc4616::plain::{SaslPlain, SaslPlainCreds},
 //! };
 //! use secrecy::SecretString;
 //!
-//! let mut auth = SaslAuthPlain::new(SaslPlain {
+//! let mut auth = SaslPlain::new(SaslPlainCreds {
 //!     authzid: None,
 //!     authcid: "alice".into(),
 //!     passwd: SecretString::from("pencil"),
@@ -54,7 +54,7 @@ use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the PLAIN exchange.
 #[derive(Clone, Debug, Error)]
-pub enum SaslAuthPlainError {
+pub enum SaslPlainError {
     /// The mechanism was resumed with a challenge it does not expect,
     /// or out of order.
     #[error("SASL PLAIN failed: unexpected challenge after the credentials")]
@@ -68,7 +68,7 @@ pub enum SaslAuthPlainError {
 ///
 /// [RFC 4616]: https://www.rfc-editor.org/rfc/rfc4616
 #[derive(Clone, Debug)]
-pub struct SaslPlain {
+pub struct SaslPlainCreds {
     /// The optional authorization identity.
     pub authzid: Option<String>,
     /// The authentication identity.
@@ -78,14 +78,14 @@ pub struct SaslPlain {
 }
 
 /// I/O-free SASL PLAIN mechanism.
-pub struct SaslAuthPlain {
-    creds: SaslPlain,
+pub struct SaslPlain {
+    creds: SaslPlainCreds,
     state: State,
 }
 
-impl SaslAuthPlain {
+impl SaslPlain {
     /// Builds the mechanism from its credentials.
-    pub fn new(creds: SaslPlain) -> Self {
+    pub fn new(creds: SaslPlainCreds) -> Self {
         Self {
             creds,
             state: State::Start,
@@ -93,8 +93,8 @@ impl SaslAuthPlain {
     }
 }
 
-impl SaslCoroutine for SaslAuthPlain {
-    type Error = SaslAuthPlainError;
+impl SaslCoroutine for SaslPlain {
+    type Error = SaslPlainError;
 
     fn mechanism(&self) -> SaslMechanism {
         SaslMechanism::Plain
@@ -126,7 +126,7 @@ impl SaslCoroutine for SaslAuthPlain {
                 SaslCoroutineState::Yielded(SaslYield::Respond(payload))
             }
             State::Responded => {
-                let err = SaslAuthPlainError::UnexpectedChallenge;
+                let err = SaslPlainError::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
         }
@@ -148,12 +148,12 @@ mod tests {
 
     #[test]
     fn start_responds_with_the_nul_separated_triple() {
-        let creds = SaslPlain {
+        let creds = SaslPlainCreds {
             authzid: Some("admin".to_string()),
             authcid: "alice".to_string(),
             passwd: SecretString::from("pencil".to_string()),
         };
-        let mut auth = SaslAuthPlain::new(creds);
+        let mut auth = SaslPlain::new(creds);
 
         let payload = respond(&mut auth, SaslResume::Start);
 
@@ -162,12 +162,12 @@ mod tests {
 
     #[test]
     fn start_leaves_the_authzid_empty_when_absent() {
-        let creds = SaslPlain {
+        let creds = SaslPlainCreds {
             authzid: None,
             authcid: "alice".to_string(),
             passwd: SecretString::from("pencil".to_string()),
         };
-        let mut auth = SaslAuthPlain::new(creds);
+        let mut auth = SaslPlain::new(creds);
 
         let payload = respond(&mut auth, SaslResume::Start);
 
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn peer_finished_completes_ok() {
-        let mut auth = SaslAuthPlain::new(creds());
+        let mut auth = SaslPlain::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
 
@@ -189,25 +189,25 @@ mod tests {
 
     #[test]
     fn extra_challenge_completes_err() {
-        let mut auth = SaslAuthPlain::new(creds());
+        let mut auth = SaslPlain::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
 
         assert!(matches!(
             auth.resume(SaslResume::Challenge(b"")),
-            SaslCoroutineState::Complete(Err(SaslAuthPlainError::UnexpectedChallenge)),
+            SaslCoroutineState::Complete(Err(SaslPlainError::UnexpectedChallenge)),
         ));
     }
 
-    fn creds() -> SaslPlain {
-        SaslPlain {
+    fn creds() -> SaslPlainCreds {
+        SaslPlainCreds {
             authzid: None,
             authcid: "alice".to_string(),
             passwd: SecretString::from("pencil".to_string()),
         }
     }
 
-    fn respond(auth: &mut SaslAuthPlain, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslPlain, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
             state => panic!("expected Respond, got {state:?}"),

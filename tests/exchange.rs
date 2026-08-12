@@ -23,18 +23,18 @@ use core::fmt::Display;
 
 use io_sasl::{
     coroutine::*,
-    login::{SaslAuthLogin, SaslLogin},
+    login::{SaslLogin, SaslLoginCreds},
     mechanism::SaslMechanism,
-    rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
-    rfc4616::plain::{SaslAuthPlain, SaslPlain},
-    rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslOauthbearer},
-    xoauth2::{SaslAuthXoauth2, SaslXoauth2},
+    rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
+    rfc4616::plain::{SaslPlain, SaslPlainCreds},
+    rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
+    xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
 use secrecy::SecretString;
 
 #[cfg(feature = "scram")]
 use io_sasl::rfc7677::scram_sha_256::{
-    SaslAuthScramSha256, SaslAuthScramSha256Error, SaslScramSha256,
+    SaslScramSha256, SaslScramSha256Creds, SaslScramSha256Error,
 };
 
 #[test]
@@ -110,7 +110,7 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
     // the server-final-message never fed back. The last one is the case
     // both duplicated implementations got wrong.
     for sent in 0..3 {
-        let mut auth = SaslAuthScramSha256::new(scram_creds());
+        let mut auth = SaslScramSha256::new(scram_creds());
 
         let prefix = [SaslResume::Start, SaslResume::Challenge(SERVER_FIRST)];
 
@@ -121,7 +121,7 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
         let completed = auth.resume(SaslResume::PeerFinished);
         let refused = matches!(
             completed,
-            SaslCoroutineState::Complete(Err(SaslAuthScramSha256Error::ServerSignatureNotVerified)),
+            SaslCoroutineState::Complete(Err(SaslScramSha256Error::ServerSignatureNotVerified)),
         );
 
         assert!(
@@ -240,39 +240,39 @@ fn mechanisms() -> impl Iterator<Item = Box<dyn SaslExchange>> {
 }
 
 fn exchanges() -> Vec<Exchange> {
-    let anonymous = SaslAnonymous {
+    let anonymous = SaslAnonymousCreds {
         message: Some("alice@localhost".into()),
     };
-    let login = SaslLogin {
+    let login = SaslLoginCreds {
         username: "alice".into(),
         password: SecretString::from("pencil"),
     };
-    let plain = SaslPlain {
+    let plain = SaslPlainCreds {
         authzid: None,
         authcid: "alice".into(),
         passwd: SecretString::from("pencil"),
     };
-    let oauthbearer = SaslOauthbearer {
+    let oauthbearer = SaslOauthbearerCreds {
         username: "user@example.com".into(),
         host: "server.example.com".into(),
         port: 143,
         token: SecretString::from("vF9dft4qmT"),
     };
-    let xoauth2 = SaslXoauth2 {
+    let xoauth2 = SaslXoauth2Creds {
         username: "someuser@example.com".into(),
         token: SecretString::from("vF9dft4qmT"),
     };
 
     let mut exchanges: Vec<Exchange> = vec![
         (
-            Box::new(SaslAuthAnonymous::new(anonymous)),
+            Box::new(SaslAnonymous::new(anonymous)),
             vec![
                 (SaslResume::Start, Expect::Responds(b"alice@localhost")),
                 (SaslResume::PeerFinished, Expect::CompletesOk),
             ],
         ),
         (
-            Box::new(SaslAuthLogin::new(login)),
+            Box::new(SaslLogin::new(login)),
             vec![
                 (SaslResume::Start, Expect::Responds(b"alice")),
                 (
@@ -283,14 +283,14 @@ fn exchanges() -> Vec<Exchange> {
             ],
         ),
         (
-            Box::new(SaslAuthPlain::new(plain)),
+            Box::new(SaslPlain::new(plain)),
             vec![
                 (SaslResume::Start, Expect::Responds(b"\0alice\0pencil")),
                 (SaslResume::PeerFinished, Expect::CompletesOk),
             ],
         ),
         (
-            Box::new(SaslAuthOauthbearer::new(oauthbearer)),
+            Box::new(SaslOauthbearer::new(oauthbearer)),
             vec![
                 (
                     SaslResume::Start,
@@ -302,7 +302,7 @@ fn exchanges() -> Vec<Exchange> {
             ],
         ),
         (
-            Box::new(SaslAuthXoauth2::new(xoauth2)),
+            Box::new(SaslXoauth2::new(xoauth2)),
             vec![
                 (
                     SaslResume::Start,
@@ -334,7 +334,7 @@ const SERVER_FINAL: &[u8] = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
 #[cfg(feature = "scram")]
 fn scram_exchange() -> Vec<Exchange> {
     vec![(
-        Box::new(SaslAuthScramSha256::new(scram_creds())),
+        Box::new(SaslScramSha256::new(scram_creds())),
         vec![
             (SaslResume::Start, Expect::Responds(CLIENT_FIRST)),
             (
@@ -353,8 +353,8 @@ fn scram_exchange() -> Vec<Exchange> {
 }
 
 #[cfg(feature = "scram")]
-fn scram_creds() -> SaslScramSha256 {
-    SaslScramSha256 {
+fn scram_creds() -> SaslScramSha256Creds {
+    SaslScramSha256Creds {
         username: "user".into(),
         password: SecretString::from("pencil"),
         nonce: CLIENT_NONCE.to_vec(),

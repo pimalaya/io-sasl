@@ -9,7 +9,7 @@
 //! authentication: an exchange ending before the server signature was
 //! verified is a failure, not a success, which is why
 //! [`SaslResume::PeerFinished`] arriving early completes
-//! [`SaslAuthScramSha256Error::ServerSignatureNotVerified`].
+//! [`SaslScramSha256Error::ServerSignatureNotVerified`].
 //!
 //! Only the intra-message base64 of RFC 5802 lives here, the `s=` salt
 //! and the `p=` proof. Transport-level base64 stays with the protocol
@@ -34,11 +34,11 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslScramSha256},
+//!     rfc7677::scram_sha_256::{SaslScramSha256, SaslScramSha256Creds},
 //! };
 //! use secrecy::SecretString;
 //!
-//! let mut auth = SaslAuthScramSha256::new(SaslScramSha256 {
+//! let mut auth = SaslScramSha256::new(SaslScramSha256Creds {
 //!     username: "user".into(),
 //!     password: SecretString::from("pencil"),
 //!     nonce: b"rOprNGfwEbeRWgbNEkqO".to_vec(),
@@ -114,7 +114,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// Failure causes of the SCRAM-SHA-256 exchange.
 #[derive(Clone, Debug, Error)]
-pub enum SaslAuthScramSha256Error {
+pub enum SaslScramSha256Error {
     /// A server message was not valid UTF-8.
     #[error("SASL SCRAM-SHA-256 failed: invalid server message encoding")]
     InvalidEncoding,
@@ -169,7 +169,7 @@ pub enum SaslAuthScramSha256Error {
 /// [RFC 7677]: https://www.rfc-editor.org/rfc/rfc7677
 /// [RFC 5802]: https://www.rfc-editor.org/rfc/rfc5802
 #[derive(Clone, Debug)]
-pub struct SaslScramSha256 {
+pub struct SaslScramSha256Creds {
     /// The account username.
     pub username: String,
     /// The password, never sent on the wire.
@@ -190,7 +190,7 @@ pub struct SaslScramSha256 {
 }
 
 /// I/O-free SASL SCRAM-SHA-256 mechanism.
-pub struct SaslAuthScramSha256 {
+pub struct SaslScramSha256 {
     password: SecretString,
     client_nonce: String,
     client_first_bare: String,
@@ -198,14 +198,14 @@ pub struct SaslAuthScramSha256 {
     state: State,
 }
 
-impl SaslAuthScramSha256 {
+impl SaslScramSha256 {
     /// Builds the mechanism from its credentials, whose
-    /// [`nonce`](SaslScramSha256::nonce) the caller supplied.
+    /// [`nonce`](SaslScramSha256Creds::nonce) the caller supplied.
     ///
     /// An I/O-free mechanism cannot generate randomness itself, so the
     /// caller owns that decision and the exchange stays
     /// deterministically testable.
-    pub fn new(creds: SaslScramSha256) -> Self {
+    pub fn new(creds: SaslScramSha256Creds) -> Self {
         let client_nonce = String::from_utf8_lossy(&creds.nonce).to_string();
 
         let mut escaped = String::with_capacity(creds.username.len());
@@ -230,9 +230,9 @@ impl SaslAuthScramSha256 {
     /// Parses the server-first-message and computes the
     /// client-final-message, remembering the server signature to
     /// expect in return.
-    fn client_final(&mut self, server_first: &[u8]) -> Result<Vec<u8>, SaslAuthScramSha256Error> {
+    fn client_final(&mut self, server_first: &[u8]) -> Result<Vec<u8>, SaslScramSha256Error> {
         let server_first =
-            from_utf8(server_first).map_err(|_| SaslAuthScramSha256Error::InvalidEncoding)?;
+            from_utf8(server_first).map_err(|_| SaslScramSha256Error::InvalidEncoding)?;
 
         let mut nonce = None;
         let mut salt = None;
@@ -244,22 +244,22 @@ impl SaslAuthScramSha256 {
             } else if let Some(s) = field.strip_prefix("s=") {
                 let s = base64
                     .decode(s)
-                    .map_err(|_| SaslAuthScramSha256Error::InvalidBase64)?;
+                    .map_err(|_| SaslScramSha256Error::InvalidBase64)?;
                 salt = Some(s);
             } else if let Some(i) = field.strip_prefix("i=") {
                 let i = i
                     .parse::<u32>()
-                    .map_err(|_| SaslAuthScramSha256Error::InvalidIterationCount)?;
+                    .map_err(|_| SaslScramSha256Error::InvalidIterationCount)?;
                 iterations = Some(i);
             }
         }
 
-        let nonce = nonce.ok_or(SaslAuthScramSha256Error::MissingNonce)?;
-        let salt = salt.ok_or(SaslAuthScramSha256Error::MissingSalt)?;
-        let iterations = iterations.ok_or(SaslAuthScramSha256Error::MissingIterations)?;
+        let nonce = nonce.ok_or(SaslScramSha256Error::MissingNonce)?;
+        let salt = salt.ok_or(SaslScramSha256Error::MissingSalt)?;
+        let iterations = iterations.ok_or(SaslScramSha256Error::MissingIterations)?;
 
         if !nonce.starts_with(&self.client_nonce) {
-            return Err(SaslAuthScramSha256Error::NonceMismatch);
+            return Err(SaslScramSha256Error::NonceMismatch);
         }
 
         trace!("iterations: {iterations}");
@@ -296,21 +296,21 @@ impl SaslAuthScramSha256 {
 
     /// Checks the server-final-message against the signature computed
     /// while building the client-final-message.
-    fn verify_server_final(&self, server_final: &[u8]) -> Result<(), SaslAuthScramSha256Error> {
+    fn verify_server_final(&self, server_final: &[u8]) -> Result<(), SaslScramSha256Error> {
         let server_final =
-            from_utf8(server_final).map_err(|_| SaslAuthScramSha256Error::InvalidEncoding)?;
+            from_utf8(server_final).map_err(|_| SaslScramSha256Error::InvalidEncoding)?;
 
         if let Some(error) = server_final.strip_prefix("e=") {
-            return Err(SaslAuthScramSha256Error::ServerError(error.to_string()));
+            return Err(SaslScramSha256Error::ServerError(error.to_string()));
         }
 
         let signature = server_final
             .strip_prefix("v=")
-            .ok_or(SaslAuthScramSha256Error::InvalidServerFinal)?;
+            .ok_or(SaslScramSha256Error::InvalidServerFinal)?;
 
         let signature = base64
             .decode(signature)
-            .map_err(|_| SaslAuthScramSha256Error::InvalidBase64)?;
+            .map_err(|_| SaslScramSha256Error::InvalidBase64)?;
 
         // NOTE: the bytes are compared in constant time, so a wrong
         // signature leaks nothing about how much of it matched.
@@ -323,15 +323,15 @@ impl SaslAuthScramSha256 {
                 == 0;
 
         if !matching {
-            return Err(SaslAuthScramSha256Error::ServerSignatureMismatch);
+            return Err(SaslScramSha256Error::ServerSignatureMismatch);
         }
 
         Ok(())
     }
 }
 
-impl SaslCoroutine for SaslAuthScramSha256 {
-    type Error = SaslAuthScramSha256Error;
+impl SaslCoroutine for SaslScramSha256 {
+    type Error = SaslScramSha256Error;
 
     fn mechanism(&self) -> SaslMechanism {
         SaslMechanism::ScramSha256
@@ -375,11 +375,11 @@ impl SaslCoroutine for SaslAuthScramSha256 {
                 SaslCoroutineState::Complete(Ok(()))
             }
             (_, SaslResume::PeerFinished) => {
-                let err = SaslAuthScramSha256Error::ServerSignatureNotVerified;
+                let err = SaslScramSha256Error::ServerSignatureNotVerified;
                 SaslCoroutineState::Complete(Err(err))
             }
             (_, _) => {
-                let err = SaslAuthScramSha256Error::UnexpectedChallenge;
+                let err = SaslScramSha256Error::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
         }
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn exchange_matches_the_rfc_7677_test_vector() {
-        let mut auth = SaslAuthScramSha256::new(creds());
+        let mut auth = SaslScramSha256::new(creds());
 
         assert_eq!(
             respond(&mut auth, SaslResume::Start),
@@ -443,20 +443,20 @@ mod tests {
 
     #[test]
     fn peer_finished_before_verification_completes_err() {
-        let mut auth = SaslAuthScramSha256::new(creds());
+        let mut auth = SaslScramSha256::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
         let _ = respond(&mut auth, SaslResume::Challenge(SERVER_FIRST.as_bytes()));
 
         assert!(matches!(
             auth.resume(SaslResume::PeerFinished),
-            SaslCoroutineState::Complete(Err(SaslAuthScramSha256Error::ServerSignatureNotVerified)),
+            SaslCoroutineState::Complete(Err(SaslScramSha256Error::ServerSignatureNotVerified)),
         ));
     }
 
     #[test]
     fn server_nonce_not_extending_the_client_nonce_completes_err() {
-        let mut auth = SaslAuthScramSha256::new(creds());
+        let mut auth = SaslScramSha256::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
 
@@ -464,13 +464,13 @@ mod tests {
 
         assert!(matches!(
             auth.resume(SaslResume::Challenge(server_first.as_bytes())),
-            SaslCoroutineState::Complete(Err(SaslAuthScramSha256Error::NonceMismatch)),
+            SaslCoroutineState::Complete(Err(SaslScramSha256Error::NonceMismatch)),
         ));
     }
 
     #[test]
     fn tampered_server_signature_completes_err() {
-        let mut auth = SaslAuthScramSha256::new(creds());
+        let mut auth = SaslScramSha256::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
         let _ = respond(&mut auth, SaslResume::Challenge(SERVER_FIRST.as_bytes()));
@@ -479,13 +479,13 @@ mod tests {
 
         assert!(matches!(
             auth.resume(SaslResume::Challenge(server_final.as_bytes())),
-            SaslCoroutineState::Complete(Err(SaslAuthScramSha256Error::ServerSignatureMismatch)),
+            SaslCoroutineState::Complete(Err(SaslScramSha256Error::ServerSignatureMismatch)),
         ));
     }
 
     #[test]
     fn server_error_completes_err() {
-        let mut auth = SaslAuthScramSha256::new(creds());
+        let mut auth = SaslScramSha256::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
         let _ = respond(&mut auth, SaslResume::Challenge(SERVER_FIRST.as_bytes()));
@@ -495,20 +495,20 @@ mod tests {
         else {
             panic!("expected Complete(Err)");
         };
-        let SaslAuthScramSha256Error::ServerError(reported) = err else {
-            panic!("expected SaslAuthScramSha256Error::ServerError, got {err:?}");
+        let SaslScramSha256Error::ServerError(reported) = err else {
+            panic!("expected SaslScramSha256Error::ServerError, got {err:?}");
         };
         assert_eq!(reported, "invalid-proof");
     }
 
     #[test]
     fn username_separators_are_escaped() {
-        let creds = SaslScramSha256 {
+        let creds = SaslScramSha256Creds {
             username: "a=b,c".to_string(),
             password: SecretString::from("pencil".to_string()),
             nonce: CLIENT_NONCE.to_vec(),
         };
-        let mut auth = SaslAuthScramSha256::new(creds);
+        let mut auth = SaslScramSha256::new(creds);
 
         let client_first = respond(&mut auth, SaslResume::Start);
         let client_first = String::from_utf8(client_first).expect("utf8 client-first-message");
@@ -516,15 +516,15 @@ mod tests {
         assert_eq!(client_first, "n,,n=a=3Db=2Cc,r=rOprNGfwEbeRWgbNEkqO");
     }
 
-    fn creds() -> SaslScramSha256 {
-        SaslScramSha256 {
+    fn creds() -> SaslScramSha256Creds {
+        SaslScramSha256Creds {
             username: "user".to_string(),
             password: SecretString::from("pencil".to_string()),
             nonce: CLIENT_NONCE.to_vec(),
         }
     }
 
-    fn respond(auth: &mut SaslAuthScramSha256, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslScramSha256, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
             state => panic!("expected Respond, got {state:?}"),

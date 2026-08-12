@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the SASL vocabulary, moved from `pimalaya-stream`.
 
-  `SaslMechanism` tags a mechanism and knows its wire name, and `Sasl` pairs a tag with the credentials of one. The credential structs `SaslAnonymous`, `SaslLogin`, `SaslPlain`, `SaslOauthbearer`, `SaslXoauth2` and `SaslScramSha256` live in the module of the mechanism that transmits them, next to its coroutine.
+  `SaslMechanism` tags a mechanism and knows its wire name, and `Sasl` pairs a tag with the credentials of one. The credential structs `SaslAnonymousCreds`, `SaslLoginCreds`, `SaslPlainCreds`, `SaslOauthbearerCreds`, `SaslXoauth2Creds` and `SaslScramSha256Creds` live in the module of the mechanism that transmits them, next to its coroutine.
 
 - Added the ANONYMOUS mechanism following RFC 4505, sending an optional trace token.
 
@@ -35,6 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the SCRAM-SHA-256 mechanism following RFC 5802 and RFC 7677, behind the `scram` cargo feature.
 
-  Verified against the exchange published in RFC 7677 section 3. The client nonce is a field of `SaslScramSha256` rather than something the mechanism generates, since an I/O-free mechanism cannot produce entropy; carrying it with the credentials means a protocol crate holding a `Sasl` always has everything the exchange needs. An exchange ending before the server signature was verified fails with `ServerSignatureNotVerified` instead of succeeding, so mutual authentication cannot be skipped by omission.
+  Verified against the exchange published in RFC 7677 section 3. The client nonce is a field of `SaslScramSha256Creds` rather than something the mechanism generates, since an I/O-free mechanism cannot produce entropy; carrying it with the credentials means a protocol crate holding a `Sasl` always has everything the exchange needs. An exchange ending before the server signature was verified fails with `ServerSignatureNotVerified` instead of succeeding, so mutual authentication cannot be skipped by omission.
 
 [unreleased]: https://github.com/pimalaya/io-sasl

@@ -18,12 +18,12 @@ use core::str::from_utf8;
 use arbitrary::Arbitrary;
 use io_sasl::{
     coroutine::*,
-    login::{SaslAuthLogin, SaslLogin},
-    rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
-    rfc4616::plain::{SaslAuthPlain, SaslPlain},
-    rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslOauthbearer},
-    rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslScramSha256},
-    xoauth2::{SaslAuthXoauth2, SaslXoauth2},
+    login::{SaslLogin, SaslLoginCreds},
+    rfc4505::anonymous::{SaslAnonymousCreds, SaslAnonymous},
+    rfc4616::plain::{SaslPlain, SaslPlainCreds},
+    rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
+    rfc7677::scram_sha_256::{SaslScramSha256, SaslScramSha256Creds},
+    xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
 use libfuzzer_sys::fuzz_target;
 use secrecy::SecretString;
@@ -54,26 +54,26 @@ fuzz_target!(|exchange: Exchange| {
     let first = exchange.challenges.first().cloned().unwrap_or_default();
 
     // A peer challenging a mechanism that has said nothing yet.
-    unstarted(SaslAuthAnonymous::new(exchange.anonymous()), &first);
-    unstarted(SaslAuthLogin::new(exchange.login()), &first);
-    unstarted(SaslAuthPlain::new(exchange.plain()), &first);
-    unstarted(SaslAuthOauthbearer::new(exchange.oauthbearer()), &first);
-    unstarted(SaslAuthXoauth2::new(exchange.xoauth2()), &first);
+    unstarted(SaslAnonymous::new(exchange.anonymous()), &first);
+    unstarted(SaslLogin::new(exchange.login()), &first);
+    unstarted(SaslPlain::new(exchange.plain()), &first);
+    unstarted(SaslOauthbearer::new(exchange.oauthbearer()), &first);
+    unstarted(SaslXoauth2::new(exchange.xoauth2()), &first);
 
     if affordable(&first) {
-        unstarted(SaslAuthScramSha256::new(exchange.scram()), &first);
+        unstarted(SaslScramSha256::new(exchange.scram()), &first);
     }
 
     // The same peer answering a mechanism driven from its initial
     // response, as a protocol crate drives it.
-    exchange.drive(SaslAuthAnonymous::new(exchange.anonymous()));
-    exchange.drive(SaslAuthLogin::new(exchange.login()));
-    exchange.drive(SaslAuthPlain::new(exchange.plain()));
-    exchange.drive(SaslAuthOauthbearer::new(exchange.oauthbearer()));
-    exchange.drive(SaslAuthXoauth2::new(exchange.xoauth2()));
+    exchange.drive(SaslAnonymous::new(exchange.anonymous()));
+    exchange.drive(SaslLogin::new(exchange.login()));
+    exchange.drive(SaslPlain::new(exchange.plain()));
+    exchange.drive(SaslOauthbearer::new(exchange.oauthbearer()));
+    exchange.drive(SaslXoauth2::new(exchange.xoauth2()));
 
     if exchange.challenges.iter().all(|c| affordable(c)) {
-        exchange.drive(SaslAuthScramSha256::new(exchange.scram()));
+        exchange.drive(SaslScramSha256::new(exchange.scram()));
     }
 });
 
@@ -98,29 +98,29 @@ impl Exchange {
         }
     }
 
-    fn anonymous(&self) -> SaslAnonymous {
-        SaslAnonymous {
+    fn anonymous(&self) -> SaslAnonymousCreds {
+        SaslAnonymousCreds {
             message: Some(self.username.clone()),
         }
     }
 
-    fn login(&self) -> SaslLogin {
-        SaslLogin {
+    fn login(&self) -> SaslLoginCreds {
+        SaslLoginCreds {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
         }
     }
 
-    fn plain(&self) -> SaslPlain {
-        SaslPlain {
+    fn plain(&self) -> SaslPlainCreds {
+        SaslPlainCreds {
             authzid: None,
             authcid: self.username.clone(),
             passwd: SecretString::from(self.password.clone()),
         }
     }
 
-    fn oauthbearer(&self) -> SaslOauthbearer {
-        SaslOauthbearer {
+    fn oauthbearer(&self) -> SaslOauthbearerCreds {
+        SaslOauthbearerCreds {
             username: self.username.clone(),
             host: self.host.clone(),
             port: self.port,
@@ -128,15 +128,15 @@ impl Exchange {
         }
     }
 
-    fn xoauth2(&self) -> SaslXoauth2 {
-        SaslXoauth2 {
+    fn xoauth2(&self) -> SaslXoauth2Creds {
+        SaslXoauth2Creds {
             username: self.username.clone(),
             token: SecretString::from(self.token.clone()),
         }
     }
 
-    fn scram(&self) -> SaslScramSha256 {
-        SaslScramSha256 {
+    fn scram(&self) -> SaslScramSha256Creds {
+        SaslScramSha256Creds {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
             nonce: self.nonce.clone(),

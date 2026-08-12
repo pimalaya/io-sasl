@@ -19,11 +19,11 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     login::{SaslAuthLogin, SaslLogin},
+//!     login::{SaslLogin, SaslLoginCreds},
 //! };
 //! use secrecy::SecretString;
 //!
-//! let mut auth = SaslAuthLogin::new(SaslLogin {
+//! let mut auth = SaslLogin::new(SaslLoginCreds {
 //!     username: "alice".into(),
 //!     password: SecretString::from("pencil"),
 //! });
@@ -68,7 +68,7 @@ use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the LOGIN exchange.
 #[derive(Clone, Debug, Error)]
-pub enum SaslAuthLoginError {
+pub enum SaslLoginError {
     /// The mechanism was resumed with a challenge it does not expect,
     /// or out of order.
     #[error("SASL LOGIN failed: unexpected challenge after the password")]
@@ -84,7 +84,7 @@ pub enum SaslAuthLoginError {
 /// [draft-murchison-sasl-login]: https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00
 /// [RFC 3501 section 6.2.3]: https://www.rfc-editor.org/rfc/rfc3501#section-6.2.3
 #[derive(Clone, Debug)]
-pub struct SaslLogin {
+pub struct SaslLoginCreds {
     /// The login username.
     pub username: String,
     /// The login password.
@@ -92,14 +92,14 @@ pub struct SaslLogin {
 }
 
 /// I/O-free SASL LOGIN mechanism.
-pub struct SaslAuthLogin {
-    creds: SaslLogin,
+pub struct SaslLogin {
+    creds: SaslLoginCreds,
     state: State,
 }
 
-impl SaslAuthLogin {
+impl SaslLogin {
     /// Builds the mechanism from its credentials.
-    pub fn new(creds: SaslLogin) -> Self {
+    pub fn new(creds: SaslLoginCreds) -> Self {
         Self {
             creds,
             state: State::Start,
@@ -107,8 +107,8 @@ impl SaslAuthLogin {
     }
 }
 
-impl SaslCoroutine for SaslAuthLogin {
-    type Error = SaslAuthLoginError;
+impl SaslCoroutine for SaslLogin {
+    type Error = SaslLoginError;
 
     fn mechanism(&self) -> SaslMechanism {
         SaslMechanism::Login
@@ -137,7 +137,7 @@ impl SaslCoroutine for SaslAuthLogin {
                 SaslCoroutineState::Yielded(SaslYield::Respond(password.into_bytes()))
             }
             State::SentPassword => {
-                let err = SaslAuthLoginError::UnexpectedChallenge;
+                let err = SaslLoginError::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
         }
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn exchange_sequences_username_then_password() {
-        let mut auth = SaslAuthLogin::new(creds());
+        let mut auth = SaslLogin::new(creds());
 
         assert_eq!(respond(&mut auth, SaslResume::Start), b"alice");
         assert_eq!(
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn peer_finished_completes_ok() {
-        let mut auth = SaslAuthLogin::new(creds());
+        let mut auth = SaslLogin::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
         let _ = respond(&mut auth, SaslResume::Challenge(b"Password:"));
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn peer_finished_after_the_username_completes_ok() {
-        let mut auth = SaslAuthLogin::new(creds());
+        let mut auth = SaslLogin::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
 
@@ -196,25 +196,25 @@ mod tests {
 
     #[test]
     fn extra_challenge_completes_err() {
-        let mut auth = SaslAuthLogin::new(creds());
+        let mut auth = SaslLogin::new(creds());
 
         let _ = respond(&mut auth, SaslResume::Start);
         let _ = respond(&mut auth, SaslResume::Challenge(b"Password:"));
 
         assert!(matches!(
             auth.resume(SaslResume::Challenge(b"Password:")),
-            SaslCoroutineState::Complete(Err(SaslAuthLoginError::UnexpectedChallenge)),
+            SaslCoroutineState::Complete(Err(SaslLoginError::UnexpectedChallenge)),
         ));
     }
 
-    fn creds() -> SaslLogin {
-        SaslLogin {
+    fn creds() -> SaslLoginCreds {
+        SaslLoginCreds {
             username: "alice".to_string(),
             password: SecretString::from("pencil".to_string()),
         }
     }
 
-    fn respond(auth: &mut SaslAuthLogin, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslLogin, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
             state => panic!("expected Respond, got {state:?}"),

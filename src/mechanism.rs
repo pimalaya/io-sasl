@@ -11,12 +11,12 @@
 //! [SASL]: https://www.rfc-editor.org/rfc/rfc4422
 
 use crate::{
-    login::SaslLogin, rfc4505::anonymous::SaslAnonymous, rfc4616::plain::SaslPlain,
-    rfc7628::oauthbearer::SaslOauthbearer, xoauth2::SaslXoauth2,
+    login::SaslLoginCreds, rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
+    rfc7628::oauthbearer::SaslOauthbearerCreds, xoauth2::SaslXoauth2Creds,
 };
 
 #[cfg(feature = "scram")]
-use crate::rfc7677::scram_sha_256::SaslScramSha256;
+use crate::rfc7677::scram_sha_256::SaslScramSha256Creds;
 
 /// Tag identifying a SASL mechanism without its credentials.
 ///
@@ -63,54 +63,54 @@ impl SaslMechanism {
 #[derive(Clone, Debug)]
 pub enum Sasl {
     /// ANONYMOUS credentials.
-    Anonymous(SaslAnonymous),
+    Anonymous(SaslAnonymousCreds),
     /// LOGIN credentials.
-    Login(SaslLogin),
+    Login(SaslLoginCreds),
     /// PLAIN credentials.
-    Plain(SaslPlain),
+    Plain(SaslPlainCreds),
     /// OAUTHBEARER credentials.
-    Oauthbearer(SaslOauthbearer),
+    Oauthbearer(SaslOauthbearerCreds),
     /// XOAUTH2 credentials.
-    Xoauth2(SaslXoauth2),
+    Xoauth2(SaslXoauth2Creds),
     /// SCRAM-SHA-256 credentials.
     #[cfg(feature = "scram")]
     #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
-    ScramSha256(SaslScramSha256),
+    ScramSha256(SaslScramSha256Creds),
 }
 
-impl From<SaslAnonymous> for Sasl {
-    fn from(sasl: SaslAnonymous) -> Self {
+impl From<SaslAnonymousCreds> for Sasl {
+    fn from(sasl: SaslAnonymousCreds) -> Self {
         Self::Anonymous(sasl)
     }
 }
 
-impl From<SaslLogin> for Sasl {
-    fn from(sasl: SaslLogin) -> Self {
+impl From<SaslLoginCreds> for Sasl {
+    fn from(sasl: SaslLoginCreds) -> Self {
         Self::Login(sasl)
     }
 }
 
-impl From<SaslPlain> for Sasl {
-    fn from(sasl: SaslPlain) -> Self {
+impl From<SaslPlainCreds> for Sasl {
+    fn from(sasl: SaslPlainCreds) -> Self {
         Self::Plain(sasl)
     }
 }
 
-impl From<SaslOauthbearer> for Sasl {
-    fn from(sasl: SaslOauthbearer) -> Self {
+impl From<SaslOauthbearerCreds> for Sasl {
+    fn from(sasl: SaslOauthbearerCreds) -> Self {
         Self::Oauthbearer(sasl)
     }
 }
 
-impl From<SaslXoauth2> for Sasl {
-    fn from(sasl: SaslXoauth2) -> Self {
+impl From<SaslXoauth2Creds> for Sasl {
+    fn from(sasl: SaslXoauth2Creds) -> Self {
         Self::Xoauth2(sasl)
     }
 }
 
 #[cfg(feature = "scram")]
-impl From<SaslScramSha256> for Sasl {
-    fn from(sasl: SaslScramSha256) -> Self {
+impl From<SaslScramSha256Creds> for Sasl {
+    fn from(sasl: SaslScramSha256Creds) -> Self {
         Self::ScramSha256(sasl)
     }
 }
@@ -122,12 +122,13 @@ mod tests {
     use secrecy::SecretString;
 
     use crate::{
-        login::SaslLogin, mechanism::*, rfc4505::anonymous::SaslAnonymous,
-        rfc4616::plain::SaslPlain, rfc7628::oauthbearer::SaslOauthbearer, xoauth2::SaslXoauth2,
+        login::SaslLoginCreds, mechanism::*, rfc4505::anonymous::SaslAnonymousCreds,
+        rfc4616::plain::SaslPlainCreds, rfc7628::oauthbearer::SaslOauthbearerCreds,
+        xoauth2::SaslXoauth2Creds,
     };
 
     #[cfg(feature = "scram")]
-    use crate::rfc7677::scram_sha_256::SaslScramSha256;
+    use crate::rfc7677::scram_sha_256::SaslScramSha256Creds;
 
     #[test]
     fn every_mechanism_spells_the_name_it_is_registered_under() {
@@ -172,12 +173,12 @@ mod tests {
         let mut vocabulary = vec![
             (
                 SaslMechanism::Anonymous,
-                SaslAnonymous { message: None }.into(),
+                SaslAnonymousCreds { message: None }.into(),
                 "ANONYMOUS",
             ),
             (
                 SaslMechanism::Login,
-                SaslLogin {
+                SaslLoginCreds {
                     username: "alice".into(),
                     password: SecretString::from("pencil"),
                 }
@@ -186,7 +187,7 @@ mod tests {
             ),
             (
                 SaslMechanism::Plain,
-                SaslPlain {
+                SaslPlainCreds {
                     authzid: None,
                     authcid: "alice".into(),
                     passwd: SecretString::from("pencil"),
@@ -196,7 +197,7 @@ mod tests {
             ),
             (
                 SaslMechanism::OAuthBearer,
-                SaslOauthbearer {
+                SaslOauthbearerCreds {
                     username: "alice@localhost".into(),
                     host: "localhost".into(),
                     port: 143,
@@ -207,7 +208,7 @@ mod tests {
             ),
             (
                 SaslMechanism::XOAuth2,
-                SaslXoauth2 {
+                SaslXoauth2Creds {
                     username: "alice@localhost".into(),
                     token: SecretString::from("vF9dft4qmT"),
                 }
@@ -224,7 +225,7 @@ mod tests {
     fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
         vec![(
             SaslMechanism::ScramSha256,
-            SaslScramSha256 {
+            SaslScramSha256Creds {
                 username: "alice".into(),
                 password: SecretString::from("pencil"),
                 nonce: vec![],

@@ -46,7 +46,14 @@
 //! Each module holds one mechanism whole: its coroutine, its failure
 //! type, and the credential struct describing what it needs, since what
 //! a mechanism transmits is part of that mechanism rather than of a
-//! catalogue somewhere else.
+//! catalogue somewhere else. The three are named after the mechanism
+//! and nothing else ([`rfc4616::plain::SaslPlain`],
+//! [`rfc4616::plain::SaslPlainError`],
+//! [`rfc4616::plain::SaslPlainCreds`]): the naming canon would give the
+//! coroutine an `Auth` verb, and this crate drops it, since a verb
+//! every single item shares distinguishes none of them. `Creds` carries
+//! the distinction instead, and it is the credentials rather than the
+//! coroutine that read as data here.
 //!
 //! [`coroutine`] holds the contract spanning them, and [`mechanism`]
 //! the vocabulary tying them together: [`mechanism::SaslMechanism`]

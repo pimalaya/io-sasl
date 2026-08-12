@@ -10,10 +10,10 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
+//!     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
 //! };
 //!
-//! let mut auth = SaslAuthAnonymous::new(SaslAnonymous {
+//! let mut auth = SaslAnonymous::new(SaslAnonymousCreds {
 //!     message: Some("alice@localhost".into()),
 //! });
 //!
@@ -47,7 +47,7 @@ use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the ANONYMOUS exchange.
 #[derive(Clone, Debug, Error)]
-pub enum SaslAuthAnonymousError {
+pub enum SaslAnonymousError {
     /// The mechanism was resumed with a challenge it does not expect,
     /// or out of order.
     #[error("SASL ANONYMOUS failed: unexpected challenge after the trace token")]
@@ -61,20 +61,20 @@ pub enum SaslAuthAnonymousError {
 ///
 /// [RFC 4505]: https://www.rfc-editor.org/rfc/rfc4505
 #[derive(Clone, Debug)]
-pub struct SaslAnonymous {
+pub struct SaslAnonymousCreds {
     /// The optional trace token logged by the server.
     pub message: Option<String>,
 }
 
 /// I/O-free SASL ANONYMOUS mechanism.
-pub struct SaslAuthAnonymous {
-    creds: SaslAnonymous,
+pub struct SaslAnonymous {
+    creds: SaslAnonymousCreds,
     state: State,
 }
 
-impl SaslAuthAnonymous {
+impl SaslAnonymous {
     /// Builds the mechanism from its optional trace token.
-    pub fn new(creds: SaslAnonymous) -> Self {
+    pub fn new(creds: SaslAnonymousCreds) -> Self {
         Self {
             creds,
             state: State::Start,
@@ -82,8 +82,8 @@ impl SaslAuthAnonymous {
     }
 }
 
-impl SaslCoroutine for SaslAuthAnonymous {
-    type Error = SaslAuthAnonymousError;
+impl SaslCoroutine for SaslAnonymous {
+    type Error = SaslAnonymousError;
 
     fn mechanism(&self) -> SaslMechanism {
         SaslMechanism::Anonymous
@@ -106,7 +106,7 @@ impl SaslCoroutine for SaslAuthAnonymous {
                 SaslCoroutineState::Yielded(SaslYield::Respond(trace.into_bytes()))
             }
             State::Responded => {
-                let err = SaslAuthAnonymousError::UnexpectedChallenge;
+                let err = SaslAnonymousError::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
         }
@@ -126,24 +126,24 @@ mod tests {
 
     #[test]
     fn start_responds_with_the_trace_token() {
-        let creds = SaslAnonymous {
+        let creds = SaslAnonymousCreds {
             message: Some("alice@localhost".to_string()),
         };
-        let mut auth = SaslAuthAnonymous::new(creds);
+        let mut auth = SaslAnonymous::new(creds);
 
         assert_eq!(respond(&mut auth, SaslResume::Start), b"alice@localhost");
     }
 
     #[test]
     fn start_responds_empty_without_trace_token() {
-        let mut auth = SaslAuthAnonymous::new(SaslAnonymous { message: None });
+        let mut auth = SaslAnonymous::new(SaslAnonymousCreds { message: None });
 
         assert!(respond(&mut auth, SaslResume::Start).is_empty());
     }
 
     #[test]
     fn peer_finished_completes_ok() {
-        let mut auth = SaslAuthAnonymous::new(SaslAnonymous { message: None });
+        let mut auth = SaslAnonymous::new(SaslAnonymousCreds { message: None });
 
         let _ = respond(&mut auth, SaslResume::Start);
 
@@ -155,17 +155,17 @@ mod tests {
 
     #[test]
     fn extra_challenge_completes_err() {
-        let mut auth = SaslAuthAnonymous::new(SaslAnonymous { message: None });
+        let mut auth = SaslAnonymous::new(SaslAnonymousCreds { message: None });
 
         let _ = respond(&mut auth, SaslResume::Start);
 
         assert!(matches!(
             auth.resume(SaslResume::Challenge(b"")),
-            SaslCoroutineState::Complete(Err(SaslAuthAnonymousError::UnexpectedChallenge)),
+            SaslCoroutineState::Complete(Err(SaslAnonymousError::UnexpectedChallenge)),
         ));
     }
 
-    fn respond(auth: &mut SaslAuthAnonymous, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslAnonymous, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
             state => panic!("expected Respond, got {state:?}"),

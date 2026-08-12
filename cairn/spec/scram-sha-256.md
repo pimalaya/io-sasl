@@ -12,7 +12,7 @@ The salted challenge/response mechanism of RFC 5802, in its SHA-256 profile (RFC
 The mechanism SHALL live behind the `scram` cargo feature, which pulls in the HMAC, PBKDF2, SHA-256 and base64 crates. The feature is enabled by default, and the rest of the crate SHALL build without it.
 
 ### Requirement: Caller-provided nonce
-`SaslAuthScramSha256::new` SHALL take the client nonce as an explicit argument. The crate SHALL NOT depend on a random number generator, since an I/O-free mechanism cannot produce entropy and the caller owns that decision.
+`SaslScramSha256::new` SHALL take the client nonce as an explicit argument. The crate SHALL NOT depend on a random number generator, since an I/O-free mechanism cannot produce entropy and the caller owns that decision.
 
 ### Requirement: Exchange
 The mechanism SHALL answer `Start` with the client-first-message, the server-first challenge with the client-final-message, and the server-final challenge with an empty acknowledgement, then complete `Ok` on `PeerFinished`.

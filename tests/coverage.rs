@@ -17,17 +17,17 @@
 
 use io_sasl::{
     coroutine::*,
-    login::{SaslAuthLogin, SaslLogin},
+    login::{SaslLogin, SaslLoginCreds},
     mechanism::SaslMechanism,
-    rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
-    rfc4616::plain::{SaslAuthPlain, SaslPlain},
-    rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslOauthbearer},
-    xoauth2::{SaslAuthXoauth2, SaslXoauth2},
+    rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
+    rfc4616::plain::{SaslPlain, SaslPlainCreds},
+    rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
+    xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
 use secrecy::SecretString;
 
 #[cfg(feature = "scram")]
-use io_sasl::rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslScramSha256};
+use io_sasl::rfc7677::scram_sha_256::{SaslScramSha256, SaslScramSha256Creds};
 
 #[test]
 fn every_coroutine_answers_with_the_tag_of_the_module_it_lives_in() {
@@ -51,23 +51,23 @@ fn every_coroutine_answers_with_the_tag_of_the_module_it_lives_in() {
 /// Every mechanism paired with the tag its coroutine reports: the
 /// module it lives in on the left, what it calls itself on the right.
 fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
-    let anonymous = SaslAuthAnonymous::new(SaslAnonymous { message: None });
-    let login = SaslAuthLogin::new(SaslLogin {
+    let anonymous = SaslAnonymous::new(SaslAnonymousCreds { message: None });
+    let login = SaslLogin::new(SaslLoginCreds {
         username: "alice".into(),
         password: SecretString::from("pencil"),
     });
-    let plain = SaslAuthPlain::new(SaslPlain {
+    let plain = SaslPlain::new(SaslPlainCreds {
         authzid: None,
         authcid: "alice".into(),
         passwd: SecretString::from("pencil"),
     });
-    let oauthbearer = SaslAuthOauthbearer::new(SaslOauthbearer {
+    let oauthbearer = SaslOauthbearer::new(SaslOauthbearerCreds {
         username: "alice@localhost".into(),
         host: "localhost".into(),
         port: 143,
         token: SecretString::from("vF9dft4qmT"),
     });
-    let xoauth2 = SaslAuthXoauth2::new(SaslXoauth2 {
+    let xoauth2 = SaslXoauth2::new(SaslXoauth2Creds {
         username: "alice@localhost".into(),
         token: SecretString::from("vF9dft4qmT"),
     });
@@ -86,7 +86,7 @@ fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
 
 #[cfg(feature = "scram")]
 fn scram() -> Vec<(SaslMechanism, SaslMechanism)> {
-    let scram = SaslAuthScramSha256::new(SaslScramSha256 {
+    let scram = SaslScramSha256::new(SaslScramSha256Creds {
         username: "alice".into(),
         password: SecretString::from("pencil"),
         nonce: b"rOprNGfwEbeRWgbNEkqO".to_vec(),
