@@ -100,12 +100,12 @@ impl Exchange {
     /// Runs the mechanism from its initial response through every
     /// challenge, stopping where a protocol crate stops.
     fn drive(&self, mut mechanism: impl SaslCoroutine) {
-        if let SaslCoroutineState::Complete(_) = mechanism.resume(SaslResume::Start) {
+        if let SaslCoroutineState::Complete(_) = mechanism.resume(SaslArg::Start) {
             return;
         }
 
         for challenge in &self.challenges {
-            let step = mechanism.resume(SaslResume::Challenge(challenge));
+            let step = mechanism.resume(SaslArg::Challenge(challenge));
 
             if let SaslCoroutineState::Complete(_) = step {
                 return;
@@ -113,7 +113,7 @@ impl Exchange {
         }
 
         if self.peer_finishes {
-            let _ = mechanism.resume(SaslResume::PeerFinished);
+            let _ = mechanism.resume(SaslArg::PeerFinished);
         }
     }
 
@@ -181,7 +181,7 @@ impl Exchange {
 
 /// Challenges a mechanism that was never resumed with `Start`.
 fn unstarted(mut mechanism: impl SaslCoroutine, challenge: &[u8]) {
-    let _ = mechanism.resume(SaslResume::Challenge(challenge));
+    let _ = mechanism.resume(SaslArg::Challenge(challenge));
 }
 
 /// Whether a challenge is cheap enough to feed SCRAM-SHA-256.

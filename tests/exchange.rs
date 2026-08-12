@@ -54,7 +54,7 @@ fn every_mechanism_answers_start_with_an_initial_response() {
         // relies on that when it decides about SASL-IR: a mechanism
         // answering WantsChallenge here would need the command sent
         // without an initial response.
-        match mechanism.step(SaslResume::Start) {
+        match mechanism.step(SaslArg::None) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(_)) => {}
             state => panic!("{name} has no initial response: {state:?}"),
         }
@@ -89,9 +89,9 @@ fn peer_finished_completes_ok_unless_the_server_is_still_unproven() {
         let tag = mechanism.tag();
         let name = tag.as_str();
 
-        let _ = mechanism.step(SaslResume::Start);
+        let _ = mechanism.step(SaslArg::None);
 
-        match mechanism.step(SaslResume::PeerFinished) {
+        match mechanism.step(SaslArg::Done) {
             SaslCoroutineState::Complete(Ok(())) => {
                 assert!(
                     !authenticates_the_server(tag),
@@ -123,13 +123,13 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
             SaslScramChannelBinding::Unsupported,
         ));
 
-        let prefix = [SaslResume::Start, SaslResume::Challenge(SERVER_FIRST)];
+        let prefix = [SaslArg::None, SaslArg::Challenge(SERVER_FIRST)];
 
         for arg in prefix.into_iter().take(sent) {
             let _ = auth.resume(arg);
         }
 
-        let completed = auth.resume(SaslResume::PeerFinished);
+        let completed = auth.resume(SaslArg::Done);
         let refused = matches!(
             completed,
             SaslCoroutineState::Complete(Err(SaslScramError::ServerSignatureNotVerified)),
@@ -159,7 +159,7 @@ fn an_extra_challenge_after_the_exchange_completes_unexpected_challenge() {
         let mut failure = None;
 
         for _ in 0..EXTRA_CHALLENGES {
-            match mechanism.step(SaslResume::Challenge(b"{}")) {
+            match mechanism.step(SaslArg::Challenge(b"{}")) {
                 SaslCoroutineState::Yielded(_) => continue,
                 SaslCoroutineState::Complete(Ok(())) => {
                     panic!("{name} answered a stray challenge with success")
@@ -185,7 +185,7 @@ fn an_extra_challenge_after_the_exchange_completes_unexpected_challenge() {
 const EXTRA_CHALLENGES: usize = 3;
 
 /// One mechanism paired with the exchange it is expected to run.
-type Exchange = (Box<dyn SaslExchange>, Vec<(SaslResume<'static>, Expect)>);
+type Exchange = (Box<dyn SaslExchange>, Vec<(SaslArg<'static>, Expect)>);
 
 /// What a scripted step expects back from the mechanism.
 #[derive(Debug)]
@@ -207,7 +207,7 @@ trait SaslExchange {
     fn tag(&self) -> SaslMechanism;
 
     /// Advances the exchange, keeping the failure as its message.
-    fn step(&mut self, arg: SaslResume<'_>) -> SaslCoroutineState<SaslYield, Result<(), String>>;
+    fn step(&mut self, arg: SaslArg<'_>) -> SaslCoroutineState<SaslYield, Result<(), String>>;
 }
 
 impl<M> SaslExchange for M
@@ -219,7 +219,7 @@ where
         self.mechanism()
     }
 
-    fn step(&mut self, arg: SaslResume<'_>) -> SaslCoroutineState<SaslYield, Result<(), String>> {
+    fn step(&mut self, arg: SaslArg<'_>) -> SaslCoroutineState<SaslYield, Result<(), String>> {
         match self.resume(arg) {
             SaslCoroutineState::Yielded(yielded) => SaslCoroutineState::Yielded(yielded),
             SaslCoroutineState::Complete(completed) => {
@@ -287,55 +287,55 @@ fn exchanges() -> Vec<Exchange> {
         (
             Box::new(SaslAnonymous::new(anonymous)),
             vec![
-                (SaslResume::Start, Expect::Responds(b"alice@localhost")),
-                (SaslResume::PeerFinished, Expect::CompletesOk),
+                (SaslArg::None, Expect::Responds(b"alice@localhost")),
+                (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
         (
             Box::new(SaslExternal::new(external)),
             vec![
-                (SaslResume::Start, Expect::Responds(b"alice@localhost")),
-                (SaslResume::PeerFinished, Expect::CompletesOk),
+                (SaslArg::None, Expect::Responds(b"alice@localhost")),
+                (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
         (
             Box::new(SaslLogin::new(login)),
             vec![
-                (SaslResume::Start, Expect::Responds(b"alice")),
+                (SaslArg::None, Expect::Responds(b"alice")),
                 (
-                    SaslResume::Challenge(b"Password:"),
+                    SaslArg::Challenge(b"Password:"),
                     Expect::Responds(b"pencil"),
                 ),
-                (SaslResume::PeerFinished, Expect::CompletesOk),
+                (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
         (
             Box::new(SaslPlain::new(plain)),
             vec![
-                (SaslResume::Start, Expect::Responds(b"\0alice\0pencil")),
-                (SaslResume::PeerFinished, Expect::CompletesOk),
+                (SaslArg::None, Expect::Responds(b"\0alice\0pencil")),
+                (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
         (
             Box::new(SaslOauthbearer::new(oauthbearer)),
             vec![
                 (
-                    SaslResume::Start,
+                    SaslArg::None,
                     Expect::Responds(
                         b"n,a=user@example.com,\x01host=server.example.com\x01port=143\x01auth=Bearer vF9dft4qmT\x01\x01",
                     ),
                 ),
-                (SaslResume::PeerFinished, Expect::CompletesOk),
+                (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
         (
             Box::new(SaslXoauth2::new(xoauth2)),
             vec![
                 (
-                    SaslResume::Start,
+                    SaslArg::None,
                     Expect::Responds(b"user=someuser@example.com\x01auth=Bearer vF9dft4qmT\x01\x01"),
                 ),
-                (SaslResume::PeerFinished, Expect::CompletesOk),
+                (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
     ];
@@ -468,15 +468,15 @@ fn scram_script(
     server_first: &'static [u8],
     client_final: &'static [u8],
     server_final: &'static [u8],
-) -> Vec<(SaslResume<'static>, Expect)> {
+) -> Vec<(SaslArg<'static>, Expect)> {
     vec![
-        (SaslResume::Start, Expect::Responds(client_first)),
+        (SaslArg::None, Expect::Responds(client_first)),
         (
-            SaslResume::Challenge(server_first),
+            SaslArg::Challenge(server_first),
             Expect::Responds(client_final),
         ),
-        (SaslResume::Challenge(server_final), Expect::Responds(b"")),
-        (SaslResume::PeerFinished, Expect::CompletesOk),
+        (SaslArg::Challenge(server_final), Expect::Responds(b"")),
+        (SaslArg::Done, Expect::CompletesOk),
     ]
 }
 

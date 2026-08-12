@@ -19,6 +19,6 @@ The private state enums named the step behind them: `Start`, `SentUsername`, `Se
 
 Rename the yield to `WantsWrite` and `WantsChallenge`, and the states of all six mechanisms to what their next resume does.
 
-The read side keeps the SASL word rather than io-imap's `WantsRead`, deliberately. `WantsRead` is right in io-imap, where the caller reads bytes off a socket and hands them over. Here the caller strips its framing and its transport base64 first, so what it hands over is a challenge, not a read; RFC 4422 calls every server-to-client message a challenge whatever the mechanism, and the name then pairs with the `SaslResume::Challenge` it asks for.
+The read side keeps the SASL word rather than io-imap's `WantsRead`, deliberately. `WantsRead` is right in io-imap, where the caller reads bytes off a socket and hands them over. Here the caller strips its framing and its transport base64 first, so what it hands over is a challenge, not a read; RFC 4422 calls every server-to-client message a challenge whatever the mechanism, and the name then pairs with the `SaslArg::Challenge` it asks for.
 
 Record both conventions where a new mechanism will meet them: the yield docs, CONTRIBUTING and the coroutines spec.

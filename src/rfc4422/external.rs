@@ -15,7 +15,7 @@
 //!
 //! ```rust
 //! use io_sasl::{
-//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     rfc4422::external::{SaslExternal, SaslExternalCreds},
 //! };
 //!
@@ -23,7 +23,7 @@
 //!
 //! // The empty payload is data, not an absence: it tells the server to
 //! // use the identity the channel already carries.
-//! let state = auth.resume(SaslResume::Start);
+//! let state = auth.resume(SaslArg::Start);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the authorization identity");
@@ -31,7 +31,7 @@
 //!
 //! assert!(payload.is_empty());
 //!
-//! let state = auth.resume(SaslResume::PeerFinished);
+//! let state = auth.resume(SaslArg::PeerFinished);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -96,9 +96,9 @@ impl SaslCoroutine for SaslExternal {
 
     fn resume(
         &mut self,
-        arg: SaslResume<'_>,
+        arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
-        if let SaslResume::PeerFinished = arg {
+        if let SaslArg::Done = arg {
             debug!("external exchange completed");
             return SaslCoroutineState::Complete(Ok(()));
         }
@@ -136,24 +136,24 @@ mod tests {
         };
         let mut auth = SaslExternal::new(creds);
 
-        assert_eq!(respond(&mut auth, SaslResume::Start), b"alice@localhost");
+        assert_eq!(respond(&mut auth, SaslArg::None), b"alice@localhost");
     }
 
     #[test]
     fn start_responds_empty_without_authorization_identity() {
         let mut auth = SaslExternal::new(SaslExternalCreds { authzid: None });
 
-        assert!(respond(&mut auth, SaslResume::Start).is_empty());
+        assert!(respond(&mut auth, SaslArg::None).is_empty());
     }
 
     #[test]
     fn peer_finished_completes_ok() {
         let mut auth = SaslExternal::new(SaslExternalCreds { authzid: None });
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -162,15 +162,15 @@ mod tests {
     fn extra_challenge_completes_err() {
         let mut auth = SaslExternal::new(SaslExternalCreds { authzid: None });
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::Challenge(b"")),
+            auth.resume(SaslArg::Challenge(b"")),
             SaslCoroutineState::Complete(Err(SaslExternalError::UnexpectedChallenge)),
         ));
     }
 
-    fn respond(auth: &mut SaslExternal, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslExternal, arg: SaslArg<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

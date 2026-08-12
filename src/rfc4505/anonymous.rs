@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use io_sasl::{
-//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
 //! };
 //!
@@ -17,7 +17,7 @@
 //!     message: Some("alice@localhost".into()),
 //! });
 //!
-//! let state = auth.resume(SaslResume::Start);
+//! let state = auth.resume(SaslArg::Start);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the trace token");
@@ -27,7 +27,7 @@
 //!
 //! // The server accepted, so its success reply ends the exchange
 //! // without a further challenge.
-//! let state = auth.resume(SaslResume::PeerFinished);
+//! let state = auth.resume(SaslArg::PeerFinished);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -91,9 +91,9 @@ impl SaslCoroutine for SaslAnonymous {
 
     fn resume(
         &mut self,
-        arg: SaslResume<'_>,
+        arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
-        if let SaslResume::PeerFinished = arg {
+        if let SaslArg::Done = arg {
             debug!("anonymous exchange completed");
             return SaslCoroutineState::Complete(Ok(()));
         }
@@ -131,24 +131,24 @@ mod tests {
         };
         let mut auth = SaslAnonymous::new(creds);
 
-        assert_eq!(respond(&mut auth, SaslResume::Start), b"alice@localhost");
+        assert_eq!(respond(&mut auth, SaslArg::None), b"alice@localhost");
     }
 
     #[test]
     fn start_responds_empty_without_trace_token() {
         let mut auth = SaslAnonymous::new(SaslAnonymousCreds { message: None });
 
-        assert!(respond(&mut auth, SaslResume::Start).is_empty());
+        assert!(respond(&mut auth, SaslArg::None).is_empty());
     }
 
     #[test]
     fn peer_finished_completes_ok() {
         let mut auth = SaslAnonymous::new(SaslAnonymousCreds { message: None });
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -157,15 +157,15 @@ mod tests {
     fn extra_challenge_completes_err() {
         let mut auth = SaslAnonymous::new(SaslAnonymousCreds { message: None });
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::Challenge(b"")),
+            auth.resume(SaslArg::Challenge(b"")),
             SaslCoroutineState::Complete(Err(SaslAnonymousError::UnexpectedChallenge)),
         ));
     }
 
-    fn respond(auth: &mut SaslAnonymous, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslAnonymous, arg: SaslArg<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

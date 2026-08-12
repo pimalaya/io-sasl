@@ -95,7 +95,7 @@ impl Exchange {
 
         let mut auth = SaslScramSha256::new(creds);
 
-        let started = auth.resume(SaslResume::Start);
+        let started = auth.resume(SaslArg::Start);
 
         let SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_first)) = started else {
             panic!("SCRAM-SHA-256 answered Start with {started:?} instead of a response");
@@ -113,7 +113,7 @@ impl Exchange {
                 } => oracle.server_first(extension, salt, *iterations),
                 Step::ServerFinal => oracle.server_final(),
                 Step::PeerFinished => {
-                    match auth.resume(SaslResume::PeerFinished) {
+                    match auth.resume(SaslArg::PeerFinished) {
                         SaslCoroutineState::Complete(completed) => oracle.completed(completed),
                         state => panic!("PeerFinished did not end the exchange: {state:?}"),
                     }
@@ -126,7 +126,7 @@ impl Exchange {
                 return;
             }
 
-            match auth.resume(SaslResume::Challenge(&challenge)) {
+            match auth.resume(SaslArg::Challenge(&challenge)) {
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) => {
                     oracle.responded(&challenge, &payload)
                 }

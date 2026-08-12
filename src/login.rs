@@ -12,13 +12,13 @@
 //! the protocol crate feeds only the second prompt: a server-first
 //! flow answers the empty "Username:" challenge with the initial
 //! response the mechanism already produced on
-//! [`SaslResume::Start`].
+//! [`SaslArg::Start`].
 //!
 //! # Example
 //!
 //! ```rust
 //! use io_sasl::{
-//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     login::{SaslLogin, SaslLoginCreds},
 //! };
 //! use secrecy::SecretString;
@@ -28,7 +28,7 @@
 //!     password: SecretString::from("pencil"),
 //! });
 //!
-//! let state = auth.resume(SaslResume::Start);
+//! let state = auth.resume(SaslArg::Start);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(user)) = state else {
 //!     panic!("expected the username");
@@ -38,7 +38,7 @@
 //!
 //! // The server prompts for the password. The prompt is human-readable
 //! // filler the mechanism ignores, the step alone being what matters.
-//! let state = auth.resume(SaslResume::Challenge(b"Password:"));
+//! let state = auth.resume(SaslArg::Challenge(b"Password:"));
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(pass)) = state else {
 //!     panic!("expected the password");
@@ -46,7 +46,7 @@
 //!
 //! assert_eq!(pass, b"pencil");
 //!
-//! let state = auth.resume(SaslResume::PeerFinished);
+//! let state = auth.resume(SaslArg::PeerFinished);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -116,9 +116,9 @@ impl SaslCoroutine for SaslLogin {
 
     fn resume(
         &mut self,
-        arg: SaslResume<'_>,
+        arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
-        if let SaslResume::PeerFinished = arg {
+        if let SaslArg::Done = arg {
             debug!("login exchange completed");
             return SaslCoroutineState::Complete(Ok(()));
         }
@@ -162,9 +162,9 @@ mod tests {
     fn exchange_sequences_username_then_password() {
         let mut auth = SaslLogin::new(creds());
 
-        assert_eq!(respond(&mut auth, SaslResume::Start), b"alice");
+        assert_eq!(respond(&mut auth, SaslArg::None), b"alice");
         assert_eq!(
-            respond(&mut auth, SaslResume::Challenge(b"Password:")),
+            respond(&mut auth, SaslArg::Challenge(b"Password:")),
             b"pencil",
         );
     }
@@ -173,11 +173,11 @@ mod tests {
     fn peer_finished_completes_ok() {
         let mut auth = SaslLogin::new(creds());
 
-        let _ = respond(&mut auth, SaslResume::Start);
-        let _ = respond(&mut auth, SaslResume::Challenge(b"Password:"));
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Challenge(b"Password:"));
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -186,10 +186,10 @@ mod tests {
     fn peer_finished_after_the_username_completes_ok() {
         let mut auth = SaslLogin::new(creds());
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -198,11 +198,11 @@ mod tests {
     fn extra_challenge_completes_err() {
         let mut auth = SaslLogin::new(creds());
 
-        let _ = respond(&mut auth, SaslResume::Start);
-        let _ = respond(&mut auth, SaslResume::Challenge(b"Password:"));
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Challenge(b"Password:"));
 
         assert!(matches!(
-            auth.resume(SaslResume::Challenge(b"Password:")),
+            auth.resume(SaslArg::Challenge(b"Password:")),
             SaslCoroutineState::Complete(Err(SaslLoginError::UnexpectedChallenge)),
         ));
     }
@@ -214,7 +214,7 @@ mod tests {
         }
     }
 
-    fn respond(auth: &mut SaslLogin, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslLogin, arg: SaslArg<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

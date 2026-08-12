@@ -16,7 +16,7 @@
 //!
 //! ```rust
 //! use io_sasl::{
-//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 //! };
 //! use secrecy::SecretString;
@@ -26,7 +26,7 @@
 //!     token: SecretString::from("vF9dft4qmT"),
 //! });
 //!
-//! let state = auth.resume(SaslResume::Start);
+//! let state = auth.resume(SaslArg::Start);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the token");
@@ -40,7 +40,7 @@
 //! // The server accepted, so its success reply ends the exchange. Had
 //! // it refused, it would have sent a JSON error challenge first, which
 //! // the mechanism answers with an empty payload before failing.
-//! let state = auth.resume(SaslResume::PeerFinished);
+//! let state = auth.resume(SaslArg::PeerFinished);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -115,10 +115,10 @@ impl SaslCoroutine for SaslXoauth2 {
 
     fn resume(
         &mut self,
-        arg: SaslResume<'_>,
+        arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
-            (State::SendToken, SaslResume::Start) => {
+            (State::SendToken, SaslArg::None) => {
                 let token = self.creds.token.expose_secret();
 
                 let mut payload = Vec::new();
@@ -134,18 +134,18 @@ impl SaslCoroutine for SaslXoauth2 {
                 debug!("xoauth2 token sent");
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload))
             }
-            (State::Done, SaslResume::Challenge(json)) => {
+            (State::Done, SaslArg::Challenge(json)) => {
                 let json = String::from_utf8_lossy(json).to_string();
                 debug!("xoauth2 token rejected, acknowledging the error");
                 trace!("{json}");
                 self.state = State::Fail(json);
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(Vec::new()))
             }
-            (State::Fail(json), SaslResume::PeerFinished) => {
+            (State::Fail(json), SaslArg::Done) => {
                 let err = SaslXoauth2Error::Rejected(json.clone());
                 SaslCoroutineState::Complete(Err(err))
             }
-            (_, SaslResume::PeerFinished) => {
+            (_, SaslArg::Done) => {
                 debug!("xoauth2 exchange completed");
                 SaslCoroutineState::Complete(Ok(()))
             }
@@ -175,7 +175,7 @@ mod tests {
     fn start_responds_with_the_documented_payload() {
         let mut auth = SaslXoauth2::new(creds());
 
-        let payload = respond(&mut auth, SaslResume::Start);
+        let payload = respond(&mut auth, SaslArg::None);
 
         assert_eq!(
             payload,
@@ -187,10 +187,10 @@ mod tests {
     fn peer_finished_completes_ok() {
         let mut auth = SaslXoauth2::new(creds());
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -200,11 +200,11 @@ mod tests {
         let mut auth = SaslXoauth2::new(creds());
         let json = br#"{"status":"401","schemes":"bearer mac"}"#;
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
-        assert!(respond(&mut auth, SaslResume::Challenge(json)).is_empty());
+        assert!(respond(&mut auth, SaslArg::Challenge(json)).is_empty());
 
-        let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslResume::PeerFinished) else {
+        let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslArg::Done) else {
             panic!("expected Complete(Err)");
         };
         let SaslXoauth2Error::Rejected(reported) = err else {
@@ -218,11 +218,11 @@ mod tests {
         let mut auth = SaslXoauth2::new(creds());
         let json = br#"{"status":"401"}"#;
 
-        let _ = respond(&mut auth, SaslResume::Start);
-        let _ = respond(&mut auth, SaslResume::Challenge(json));
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Challenge(json));
 
         assert!(matches!(
-            auth.resume(SaslResume::Challenge(json)),
+            auth.resume(SaslArg::Challenge(json)),
             SaslCoroutineState::Complete(Err(SaslXoauth2Error::UnexpectedChallenge)),
         ));
     }
@@ -234,7 +234,7 @@ mod tests {
         }
     }
 
-    fn respond(auth: &mut SaslXoauth2, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslXoauth2, arg: SaslArg<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

@@ -82,20 +82,20 @@
 //! ## The coroutine contract
 //!
 //! Every mechanism implements [`coroutine::SaslCoroutine`], whose
-//! resume method takes a [`coroutine::SaslResume`] and returns either
+//! resume method takes a [`coroutine::SaslArg`] and returns either
 //! a [`coroutine::SaslYield`] or the terminal `Result<(), Error>`.
 //!
 //! The resume argument has three cases rather than an optional
 //! challenge, because "the peer ended the exchange" has to stay
 //! distinguishable from "here is a challenge". On
-//! [`coroutine::SaslResume::PeerFinished`] the one-shot mechanisms
+//! [`coroutine::SaslArg::PeerFinished`] the one-shot mechanisms
 //! complete `Ok`, while every SCRAM profile completes `Err` whenever the
 //! server signature has not been verified yet. Were the protocol crate
 //! deciding for itself when an exchange ends, PLAIN and SCRAM would
 //! look identical from outside, send then await the success reply, and
 //! SCRAM's mutual authentication would be skipped by omission.
 //!
-//! The first resume takes [`coroutine::SaslResume::Start`]. A
+//! The first resume takes [`coroutine::SaslArg::Start`]. A
 //! mechanism answering it with [`coroutine::SaslYield::WantsWrite`] has
 //! an initial response ([RFC 4422]), which the protocol may inline in
 //! its authentication command: IMAP needs the `SASL-IR` capability

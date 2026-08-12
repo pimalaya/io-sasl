@@ -13,7 +13,7 @@
 //!
 //! ```rust
 //! use io_sasl::{
-//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     rfc5802::{SaslScramChannelBinding, SaslScramCreds},
 //!     rfc7677::scram_sha_256::SaslScramSha256,
 //! };
@@ -26,7 +26,7 @@
 //!     channel_binding: SaslScramChannelBinding::Unsupported,
 //! });
 //!
-//! let state = auth.resume(SaslResume::Start);
+//! let state = auth.resume(SaslArg::Start);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(first)) = state else {
 //!     panic!("expected the client-first-message");
@@ -36,7 +36,7 @@
 //!
 //! // The server extends the nonce and names its salt and iteration
 //! // count; the mechanism answers with the proof it knows the password.
-//! let server_first = SaslResume::Challenge(
+//! let server_first = SaslArg::Challenge(
 //!     b"r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
 //! );
 //!
@@ -53,7 +53,7 @@
 //! // instead would complete with ServerSignatureNotVerified.
 //! let signature = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
 //!
-//! let state = auth.resume(SaslResume::Challenge(signature));
+//! let state = auth.resume(SaslArg::Challenge(signature));
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(ack)) = state else {
 //!     panic!("expected the server-final-message to verify");
@@ -61,7 +61,7 @@
 //!
 //! assert!(ack.is_empty());
 //!
-//! let state = auth.resume(SaslResume::PeerFinished);
+//! let state = auth.resume(SaslArg::PeerFinished);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -114,19 +114,16 @@ mod tests {
     fn exchange_matches_the_rfc_7677_test_vector() {
         let mut auth = SaslScramSha256::new(creds());
 
-        assert_eq!(
-            respond(&mut auth, SaslResume::Start),
-            CLIENT_FIRST.as_bytes()
-        );
+        assert_eq!(respond(&mut auth, SaslArg::None), CLIENT_FIRST.as_bytes());
 
-        let client_final = respond(&mut auth, SaslResume::Challenge(SERVER_FIRST.as_bytes()));
+        let client_final = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
         assert_eq!(client_final, CLIENT_FINAL.as_bytes());
 
-        let ack = respond(&mut auth, SaslResume::Challenge(SERVER_FINAL.as_bytes()));
+        let ack = respond(&mut auth, SaslArg::Challenge(SERVER_FINAL.as_bytes()));
         assert!(ack.is_empty());
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -157,7 +154,7 @@ mod tests {
         }
     }
 
-    fn respond(auth: &mut SaslScramSha256, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslScramSha256, arg: SaslArg<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

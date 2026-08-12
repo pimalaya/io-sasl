@@ -17,7 +17,7 @@
 //!
 //! ```rust
 //! use io_sasl::{
-//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     rfc7628::oauthbearer::{
 //!         SaslOauthbearer, SaslOauthbearerCreds, SaslOauthbearerError,
 //!     },
@@ -31,7 +31,7 @@
 //!     token: SecretString::from("expired"),
 //! });
 //!
-//! let state = auth.resume(SaslResume::Start);
+//! let state = auth.resume(SaslArg::Start);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the token");
@@ -42,7 +42,7 @@
 //! // The server refused the token and describes why in a JSON
 //! // challenge, which the mechanism acknowledges with a single %x01 so
 //! // the server can end the exchange.
-//! let state = auth.resume(SaslResume::Challenge(br#"{"status":"401"}"#));
+//! let state = auth.resume(SaslArg::Challenge(br#"{"status":"401"}"#));
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(ack)) = state else {
 //!     panic!("expected the error acknowledgement");
@@ -51,7 +51,7 @@
 //! assert_eq!(ack, [0x01]);
 //!
 //! // Only now does the exchange end, and the failure carries the JSON.
-//! let state = auth.resume(SaslResume::PeerFinished);
+//! let state = auth.resume(SaslArg::PeerFinished);
 //!
 //! let SaslCoroutineState::Complete(Err(err)) = state else {
 //!     panic!("expected the refused token to fail");
@@ -133,10 +133,10 @@ impl SaslCoroutine for SaslOauthbearer {
 
     fn resume(
         &mut self,
-        arg: SaslResume<'_>,
+        arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
-            (State::SendToken, SaslResume::Start) => {
+            (State::SendToken, SaslArg::None) => {
                 let host = &self.creds.host;
                 let port = self.creds.port;
                 let token = self.creds.token.expose_secret();
@@ -159,18 +159,18 @@ impl SaslCoroutine for SaslOauthbearer {
                 debug!("oauthbearer token sent");
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload))
             }
-            (State::Done, SaslResume::Challenge(json)) => {
+            (State::Done, SaslArg::Challenge(json)) => {
                 let json = String::from_utf8_lossy(json).to_string();
                 debug!("oauthbearer token rejected, acknowledging the error");
                 trace!("{json}");
                 self.state = State::Fail(json);
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(vec![0x01]))
             }
-            (State::Fail(json), SaslResume::PeerFinished) => {
+            (State::Fail(json), SaslArg::Done) => {
                 let err = SaslOauthbearerError::Rejected(json.clone());
                 SaslCoroutineState::Complete(Err(err))
             }
-            (_, SaslResume::PeerFinished) => {
+            (_, SaslArg::Done) => {
                 debug!("oauthbearer exchange completed");
                 SaslCoroutineState::Complete(Ok(()))
             }
@@ -200,7 +200,7 @@ mod tests {
     fn start_responds_with_the_rfc_7628_example_payload() {
         let mut auth = SaslOauthbearer::new(creds());
 
-        let payload = respond(&mut auth, SaslResume::Start);
+        let payload = respond(&mut auth, SaslArg::None);
 
         assert_eq!(
             payload,
@@ -212,10 +212,10 @@ mod tests {
     fn peer_finished_completes_ok() {
         let mut auth = SaslOauthbearer::new(creds());
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslResume::PeerFinished),
+            auth.resume(SaslArg::Done),
             SaslCoroutineState::Complete(Ok(())),
         ));
     }
@@ -225,11 +225,11 @@ mod tests {
         let mut auth = SaslOauthbearer::new(creds());
         let json = br#"{"status":"invalid_token","scope":"example"}"#;
 
-        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslArg::None);
 
-        assert_eq!(respond(&mut auth, SaslResume::Challenge(json)), [0x01]);
+        assert_eq!(respond(&mut auth, SaslArg::Challenge(json)), [0x01]);
 
-        let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslResume::PeerFinished) else {
+        let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslArg::Done) else {
             panic!("expected Complete(Err)");
         };
         let SaslOauthbearerError::Rejected(reported) = err else {
@@ -243,11 +243,11 @@ mod tests {
         let mut auth = SaslOauthbearer::new(creds());
         let json = br#"{"status":"invalid_token"}"#;
 
-        let _ = respond(&mut auth, SaslResume::Start);
-        let _ = respond(&mut auth, SaslResume::Challenge(json));
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Challenge(json));
 
         assert!(matches!(
-            auth.resume(SaslResume::Challenge(json)),
+            auth.resume(SaslArg::Challenge(json)),
             SaslCoroutineState::Complete(Err(SaslOauthbearerError::UnexpectedChallenge)),
         ));
     }
@@ -261,7 +261,7 @@ mod tests {
         }
     }
 
-    fn respond(auth: &mut SaslOauthbearer, arg: SaslResume<'_>) -> Vec<u8> {
+    fn respond(auth: &mut SaslOauthbearer, arg: SaslArg<'_>) -> Vec<u8> {
         match auth.resume(arg) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
             state => panic!("expected WantsWrite, got {state:?}"),

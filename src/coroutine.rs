@@ -28,8 +28,8 @@ pub enum SaslCoroutineState<Y, R> {
 /// Challenges are carried already base64-decoded: transport encoding
 /// belongs to the protocol, which decodes an IMAP continuation request
 /// or an SMTP 334 line before handing the bytes over.
-#[derive(Debug)]
-pub enum SaslResume<'a> {
+#[derive(Debug, Default)]
+pub enum SaslArg<'a> {
     /// Nothing has been exchanged yet.
     ///
     /// A mechanism answering [`SaslYield::WantsWrite`] has an initial
@@ -39,12 +39,13 @@ pub enum SaslResume<'a> {
     /// server-first and has nothing to say yet.
     ///
     /// [RFC 4422 section 3]: https://www.rfc-editor.org/rfc/rfc4422#section-3
-    Start,
+    #[default]
+    None,
     /// The peer sent this (already base64-decoded) challenge.
     Challenge(&'a [u8]),
     /// The peer ended the exchange (an IMAP tagged OK, an SMTP 235,
     /// ...) without a further challenge.
-    PeerFinished,
+    Done,
 }
 
 /// What the mechanism wants the protocol crate to do next.
@@ -55,6 +56,11 @@ pub enum SaslResume<'a> {
 /// is left once its framing and its base64 are stripped off.
 #[derive(Debug)]
 pub enum SaslYield {
+    /// The mechanism has nothing to send and wants the peer's next
+    /// challenge, which comes back as [`SaslArg::Challenge`], or as
+    /// [`SaslArg::PeerFinished`] when the peer ends the exchange
+    /// instead of challenging again.
+    WantsChallenge,
     /// The caller writes these raw bytes as the next response,
     /// base64-encoding and framing them for its own transport first.
     ///
@@ -62,11 +68,6 @@ pub enum SaslYield {
     /// protocol whose framing already ended the exchange may drop it
     /// instead of writing an empty line.
     WantsWrite(Vec<u8>),
-    /// The mechanism has nothing to send and wants the peer's next
-    /// challenge, which comes back as [`SaslResume::Challenge`], or as
-    /// [`SaslResume::PeerFinished`] when the peer ends the exchange
-    /// instead of challenging again.
-    WantsChallenge,
 }
 
 /// Standard-shape SASL mechanism: owns its exchange state, names
@@ -87,12 +88,12 @@ pub trait SaslCoroutine {
 
     /// Advances the exchange one step.
     ///
-    /// The first call takes [`SaslResume::Start`]. Every following
+    /// The first call takes [`SaslArg::Start`]. Every following
     /// call answers the previous yield: a challenge the peer sent, or
-    /// [`SaslResume::PeerFinished`] when the peer closed the exchange
+    /// [`SaslArg::PeerFinished`] when the peer closed the exchange
     /// instead of challenging again.
     fn resume(
         &mut self,
-        arg: SaslResume<'_>,
+        arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>>;
 }
