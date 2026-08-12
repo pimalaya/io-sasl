@@ -1,0 +1,195 @@
+//! The XOAUTH2 mechanism ([Google XOAUTH2], pre-standard).
+//!
+//! One message carrying `user=<username>` and `auth=Bearer <token>`,
+//! separated and terminated by `%x01` control characters. It predates
+//! and was superseded by OAUTHBEARER ([RFC 7628]), but Google and
+//! Microsoft still speak it, so it stays.
+//!
+//! A rejected token is not answered by an error status: the server
+//! sends a base64 JSON error as a challenge and waits for one more
+//! client response before ending the exchange. Google documents that
+//! response as empty, unlike OAUTHBEARER's single `%x01`, so the
+//! mechanism answers the JSON challenge with an empty payload and then
+//! fails with the JSON the server sent.
+//!
+//! [Google XOAUTH2]: https://developers.google.com/gmail/imap/xoauth2-protocol
+//! [RFC 7628]: https://www.rfc-editor.org/rfc/rfc7628
+
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+
+use log::{debug, trace};
+use secrecy::ExposeSecret;
+use thiserror::Error;
+
+use crate::{
+    coroutine::*,
+    mechanism::{SaslMechanism, SaslXoauth2},
+};
+
+/// Failure causes of the XOAUTH2 exchange.
+#[derive(Clone, Debug, Error)]
+pub enum SaslAuthXoauth2Error {
+    /// The server rejected the token, describing why in a JSON
+    /// challenge.
+    #[error("SASL XOAUTH2 failed: server rejected the token: {0}")]
+    Rejected(String),
+    /// The mechanism was resumed with a challenge it does not expect,
+    /// or out of order.
+    #[error("SASL XOAUTH2 failed: unexpected challenge")]
+    UnexpectedChallenge,
+}
+
+/// I/O-free SASL XOAUTH2 mechanism.
+pub struct SaslAuthXoauth2 {
+    creds: SaslXoauth2,
+    state: State,
+}
+
+impl SaslAuthXoauth2 {
+    /// Builds the mechanism from its credentials.
+    pub fn new(creds: SaslXoauth2) -> Self {
+        Self {
+            creds,
+            state: State::Start,
+        }
+    }
+}
+
+impl SaslCoroutine for SaslAuthXoauth2 {
+    type Error = SaslAuthXoauth2Error;
+
+    fn mechanism(&self) -> SaslMechanism {
+        SaslMechanism::XOAuth2
+    }
+
+    fn resume(
+        &mut self,
+        arg: SaslResume<'_>,
+    ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
+        match (&self.state, arg) {
+            (State::Start, SaslResume::Start) => {
+                let token = self.creds.token.expose_secret();
+
+                let mut payload = Vec::new();
+                payload.extend_from_slice(b"user=");
+                payload.extend_from_slice(self.creds.username.as_bytes());
+                payload.push(0x01);
+                payload.extend_from_slice(b"auth=Bearer ");
+                payload.extend_from_slice(token.as_bytes());
+                payload.push(0x01);
+                payload.push(0x01);
+
+                self.state = State::Responded;
+                debug!("xoauth2 token sent");
+                SaslCoroutineState::Yielded(SaslYield::Respond(payload))
+            }
+            (State::Responded, SaslResume::Challenge(json)) => {
+                let json = String::from_utf8_lossy(json).to_string();
+                debug!("xoauth2 token rejected, acknowledging the error");
+                trace!("{json}");
+                self.state = State::Rejected(json);
+                SaslCoroutineState::Yielded(SaslYield::Respond(Vec::new()))
+            }
+            (State::Rejected(json), SaslResume::PeerFinished) => {
+                let err = SaslAuthXoauth2Error::Rejected(json.clone());
+                SaslCoroutineState::Complete(Err(err))
+            }
+            (_, SaslResume::PeerFinished) => {
+                debug!("xoauth2 exchange completed");
+                SaslCoroutineState::Complete(Ok(()))
+            }
+            (_, _) => {
+                let err = SaslAuthXoauth2Error::UnexpectedChallenge;
+                SaslCoroutineState::Complete(Err(err))
+            }
+        }
+    }
+}
+
+enum State {
+    Start,
+    Responded,
+    Rejected(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::{string::ToString, vec::Vec};
+
+    use secrecy::SecretString;
+
+    use crate::{coroutine::*, mechanism::SaslXoauth2, xoauth2::*};
+
+    #[test]
+    fn start_responds_with_the_documented_payload() {
+        let mut auth = SaslAuthXoauth2::new(creds());
+
+        let payload = respond(&mut auth, SaslResume::Start);
+
+        assert_eq!(
+            payload,
+            b"user=someuser@example.com\x01auth=Bearer vF9dft4qmT\x01\x01",
+        );
+    }
+
+    #[test]
+    fn peer_finished_completes_ok() {
+        let mut auth = SaslAuthXoauth2::new(creds());
+
+        let _ = respond(&mut auth, SaslResume::Start);
+
+        assert!(matches!(
+            auth.resume(SaslResume::PeerFinished),
+            SaslCoroutineState::Complete(Ok(())),
+        ));
+    }
+
+    #[test]
+    fn error_challenge_is_acknowledged_then_fails_with_the_json() {
+        let mut auth = SaslAuthXoauth2::new(creds());
+        let json = br#"{"status":"401","schemes":"bearer mac"}"#;
+
+        let _ = respond(&mut auth, SaslResume::Start);
+
+        assert!(respond(&mut auth, SaslResume::Challenge(json)).is_empty());
+
+        let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslResume::PeerFinished) else {
+            panic!("expected Complete(Err)");
+        };
+        let SaslAuthXoauth2Error::Rejected(reported) = err else {
+            panic!("expected SaslAuthXoauth2Error::Rejected, got {err:?}");
+        };
+        assert_eq!(reported.as_bytes(), json);
+    }
+
+    #[test]
+    fn extra_challenge_completes_err() {
+        let mut auth = SaslAuthXoauth2::new(creds());
+        let json = br#"{"status":"401"}"#;
+
+        let _ = respond(&mut auth, SaslResume::Start);
+        let _ = respond(&mut auth, SaslResume::Challenge(json));
+
+        assert!(matches!(
+            auth.resume(SaslResume::Challenge(json)),
+            SaslCoroutineState::Complete(Err(SaslAuthXoauth2Error::UnexpectedChallenge)),
+        ));
+    }
+
+    fn creds() -> SaslXoauth2 {
+        SaslXoauth2 {
+            username: "someuser@example.com".to_string(),
+            token: SecretString::from("vF9dft4qmT".to_string()),
+        }
+    }
+
+    fn respond(auth: &mut SaslAuthXoauth2, arg: SaslResume<'_>) -> Vec<u8> {
+        match auth.resume(arg) {
+            SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
+            state => panic!("expected Respond, got {state:?}"),
+        }
+    }
+}

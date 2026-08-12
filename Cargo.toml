@@ -1,0 +1,30 @@
+[package]
+name = "io-sasl"
+description = "Simple Authentication and Security Layer (SASL) client library for Rust"
+version = "0.1.0"
+authors = ["Clément DOUIN (soywod) <pimalaya.org@posteo.net>"]
+rust-version = "1.87"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+categories = ["api-bindings", "no-std", "authentication"]
+keywords = ["io-free", "no-std", "coroutine", "sasl", "scram"]
+homepage = "https://pimalaya.org"
+documentation = "https://docs.rs/io-sasl/latest/io_sasl"
+repository = "https://github.com/pimalaya/io-sasl"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["scram"]
+scram = ["dep:base64", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
+
+[dependencies]
+base64 = { version = "0.23", default-features = false, features = ["alloc"], optional = true }
+hmac = { version = "0.13", default-features = false, optional = true }
+log = { version = "0.4", default-features = false }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"], optional = true }
+secrecy = { version = "0.10", default-features = false }
+sha2 = { version = "0.11", default-features = false, optional = true }
+thiserror = { version = "2", default-features = false }
