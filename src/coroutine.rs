@@ -32,10 +32,10 @@ pub enum SaslCoroutineState<Y, R> {
 pub enum SaslResume<'a> {
     /// Nothing has been exchanged yet.
     ///
-    /// A mechanism answering [`SaslYield::Respond`] has an initial
+    /// A mechanism answering [`SaslYield::WantsWrite`] has an initial
     /// response ([RFC 4422 section 3]), which the protocol may inline
     /// in its authentication command when its grammar allows it. A
-    /// mechanism answering [`SaslYield::AwaitChallenge`] is
+    /// mechanism answering [`SaslYield::WantsChallenge`] is
     /// server-first and has nothing to say yet.
     ///
     /// [RFC 4422 section 3]: https://www.rfc-editor.org/rfc/rfc4422#section-3
@@ -47,19 +47,26 @@ pub enum SaslResume<'a> {
     PeerFinished,
 }
 
-/// What the mechanism asks the protocol crate to do.
+/// What the mechanism wants the protocol crate to do next.
+///
+/// The shape mirrors io-imap's yield, one variant per direction, but
+/// the read side is named after the challenge rather than after the
+/// read: the caller does not hand over what it read, it hands over what
+/// is left once its framing and its base64 are stripped off.
 #[derive(Debug)]
 pub enum SaslYield {
-    /// Send these raw (not yet base64-encoded) bytes as the next
-    /// response.
+    /// The caller writes these raw bytes as the next response,
+    /// base64-encoding and framing them for its own transport first.
     ///
     /// An empty payload is an acknowledgement rather than data: a
     /// protocol whose framing already ended the exchange may drop it
     /// instead of writing an empty line.
-    Respond(Vec<u8>),
-    /// The mechanism has nothing to send and needs the peer's next
-    /// challenge.
-    AwaitChallenge,
+    WantsWrite(Vec<u8>),
+    /// The mechanism has nothing to send and wants the peer's next
+    /// challenge, which comes back as [`SaslResume::Challenge`], or as
+    /// [`SaslResume::PeerFinished`] when the peer ends the exchange
+    /// instead of challenging again.
+    WantsChallenge,
 }
 
 /// Standard-shape SASL mechanism: owns its exchange state, names

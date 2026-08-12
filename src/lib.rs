@@ -79,14 +79,14 @@
 //! SCRAM's mutual authentication would be skipped by omission.
 //!
 //! The first resume takes [`coroutine::SaslResume::Start`]. A
-//! mechanism answering it with [`coroutine::SaslYield::Respond`] has
+//! mechanism answering it with [`coroutine::SaslYield::WantsWrite`] has
 //! an initial response ([RFC 4422]), which the protocol may inline in
 //! its authentication command: IMAP needs the `SASL-IR` capability
 //! ([RFC 4959]) for that, SMTP carries it unconditionally in the
 //! [RFC 4954] grammar. Whether to inline it, and whether a given
 //! server can be trusted to accept it, is the protocol crate's
 //! decision, not this crate's. A mechanism answering
-//! [`coroutine::SaslYield::AwaitChallenge`] is server-first instead;
+//! [`coroutine::SaslYield::WantsChallenge`] is server-first instead;
 //! none of the six are, but the vocabulary expresses it.
 //!
 //! ## Boundaries

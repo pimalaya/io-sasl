@@ -30,7 +30,7 @@
 //!
 //! let state = auth.resume(SaslResume::Start);
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(user)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(user)) = state else {
 //!     panic!("expected the username");
 //! };
 //!
@@ -40,7 +40,7 @@
 //! // filler the mechanism ignores, the step alone being what matters.
 //! let state = auth.resume(SaslResume::Challenge(b"Password:"));
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(pass)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(pass)) = state else {
 //!     panic!("expected the password");
 //! };
 //!
@@ -102,7 +102,7 @@ impl SaslLogin {
     pub fn new(creds: SaslLoginCreds) -> Self {
         Self {
             creds,
-            state: State::Start,
+            state: State::SendUsername,
         }
     }
 }
@@ -124,19 +124,19 @@ impl SaslCoroutine for SaslLogin {
         }
 
         match self.state {
-            State::Start => {
+            State::SendUsername => {
                 let username = self.creds.username.as_bytes().to_vec();
-                self.state = State::SentUsername;
+                self.state = State::SendPassword;
                 debug!("login username sent");
-                SaslCoroutineState::Yielded(SaslYield::Respond(username))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(username))
             }
-            State::SentUsername => {
+            State::SendPassword => {
                 let password = self.creds.password.expose_secret().to_string();
-                self.state = State::SentPassword;
+                self.state = State::Done;
                 debug!("login password sent");
-                SaslCoroutineState::Yielded(SaslYield::Respond(password.into_bytes()))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(password.into_bytes()))
             }
-            State::SentPassword => {
+            State::Done => {
                 let err = SaslLoginError::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
@@ -145,9 +145,9 @@ impl SaslCoroutine for SaslLogin {
 }
 
 enum State {
-    Start,
-    SentUsername,
-    SentPassword,
+    SendUsername,
+    SendPassword,
+    Done,
 }
 
 #[cfg(test)]
@@ -216,8 +216,8 @@ mod tests {
 
     fn respond(auth: &mut SaslLogin, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
-            SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
-            state => panic!("expected Respond, got {state:?}"),
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
+            state => panic!("expected WantsWrite, got {state:?}"),
         }
     }
 }

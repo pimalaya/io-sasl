@@ -25,7 +25,7 @@
 //! // the answer to the first continuation request.
 //! let state = auth.resume(SaslResume::Start);
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the credentials");
 //! };
 //!
@@ -88,7 +88,7 @@ impl SaslPlain {
     pub fn new(creds: SaslPlainCreds) -> Self {
         Self {
             creds,
-            state: State::Start,
+            state: State::SendCreds,
         }
     }
 }
@@ -110,7 +110,7 @@ impl SaslCoroutine for SaslPlain {
         }
 
         match self.state {
-            State::Start => {
+            State::SendCreds => {
                 let authzid = self.creds.authzid.as_deref().unwrap_or_default();
                 let passwd = self.creds.passwd.expose_secret();
 
@@ -121,11 +121,11 @@ impl SaslCoroutine for SaslPlain {
                 payload.push(0);
                 payload.extend_from_slice(passwd.as_bytes());
 
-                self.state = State::Responded;
+                self.state = State::Done;
                 debug!("plain credentials sent");
-                SaslCoroutineState::Yielded(SaslYield::Respond(payload))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload))
             }
-            State::Responded => {
+            State::Done => {
                 let err = SaslPlainError::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
@@ -134,8 +134,8 @@ impl SaslCoroutine for SaslPlain {
 }
 
 enum State {
-    Start,
-    Responded,
+    SendCreds,
+    Done,
 }
 
 #[cfg(test)]
@@ -209,8 +209,8 @@ mod tests {
 
     fn respond(auth: &mut SaslPlain, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
-            SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
-            state => panic!("expected Respond, got {state:?}"),
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
+            state => panic!("expected WantsWrite, got {state:?}"),
         }
     }
 }

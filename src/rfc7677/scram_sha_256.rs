@@ -46,7 +46,7 @@
 //!
 //! let state = auth.resume(SaslResume::Start);
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(first)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(first)) = state else {
 //!     panic!("expected the client-first-message");
 //! };
 //!
@@ -60,7 +60,7 @@
 //!
 //! let state = auth.resume(server_first);
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(proof)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(proof)) = state else {
 //!     panic!("expected the client-final-message");
 //! };
 //!
@@ -73,7 +73,7 @@
 //!
 //! let state = auth.resume(SaslResume::Challenge(signature));
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(ack)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(ack)) = state else {
 //!     panic!("expected the server-final-message to verify");
 //! };
 //!
@@ -223,7 +223,7 @@ impl SaslScramSha256 {
             client_first_bare: format!("n={escaped},r={client_nonce}"),
             client_nonce,
             expected_server_signature: Vec::new(),
-            state: State::Start,
+            state: State::SendClientFirst,
         }
     }
 
@@ -342,35 +342,35 @@ impl SaslCoroutine for SaslScramSha256 {
         arg: SaslResume<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
-            (State::Start, SaslResume::Start) => {
+            (State::SendClientFirst, SaslResume::Start) => {
                 let client_first_bare = &self.client_first_bare;
                 let client_first = format!("n,,{client_first_bare}");
 
-                self.state = State::SentClientFirst;
+                self.state = State::SendClientFinal;
                 debug!("client-first-message sent");
                 trace!("{client_first}");
-                SaslCoroutineState::Yielded(SaslYield::Respond(client_first.into_bytes()))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_first.into_bytes()))
             }
-            (State::SentClientFirst, SaslResume::Challenge(server_first)) => {
+            (State::SendClientFinal, SaslResume::Challenge(server_first)) => {
                 let client_final = match self.client_final(server_first) {
                     Ok(client_final) => client_final,
                     Err(err) => return SaslCoroutineState::Complete(Err(err)),
                 };
 
-                self.state = State::SentClientFinal;
+                self.state = State::Acknowledge;
                 debug!("server-first-message received, client-final-message sent");
-                SaslCoroutineState::Yielded(SaslYield::Respond(client_final))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_final))
             }
-            (State::SentClientFinal, SaslResume::Challenge(server_final)) => {
+            (State::Acknowledge, SaslResume::Challenge(server_final)) => {
                 if let Err(err) = self.verify_server_final(server_final) {
                     return SaslCoroutineState::Complete(Err(err));
                 }
 
-                self.state = State::Verified;
+                self.state = State::Done;
                 debug!("server signature verified");
-                SaslCoroutineState::Yielded(SaslYield::Respond(Vec::new()))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(Vec::new()))
             }
-            (State::Verified, SaslResume::PeerFinished) => {
+            (State::Done, SaslResume::PeerFinished) => {
                 debug!("scram-sha-256 exchange completed");
                 SaslCoroutineState::Complete(Ok(()))
             }
@@ -387,10 +387,10 @@ impl SaslCoroutine for SaslScramSha256 {
 }
 
 enum State {
-    Start,
-    SentClientFirst,
-    SentClientFinal,
-    Verified,
+    SendClientFirst,
+    SendClientFinal,
+    Acknowledge,
+    Done,
 }
 
 /// HMAC-SHA-256 as RFC 5802 uses it: `HMAC(key, data)`.
@@ -526,8 +526,8 @@ mod tests {
 
     fn respond(auth: &mut SaslScramSha256, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
-            SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
-            state => panic!("expected Respond, got {state:?}"),
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
+            state => panic!("expected WantsWrite, got {state:?}"),
         }
     }
 }

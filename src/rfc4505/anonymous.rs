@@ -19,7 +19,7 @@
 //!
 //! let state = auth.resume(SaslResume::Start);
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the trace token");
 //! };
 //!
@@ -77,7 +77,7 @@ impl SaslAnonymous {
     pub fn new(creds: SaslAnonymousCreds) -> Self {
         Self {
             creds,
-            state: State::Start,
+            state: State::SendTraceToken,
         }
     }
 }
@@ -99,13 +99,13 @@ impl SaslCoroutine for SaslAnonymous {
         }
 
         match self.state {
-            State::Start => {
+            State::SendTraceToken => {
                 let trace = self.creds.message.take().unwrap_or_default();
-                self.state = State::Responded;
+                self.state = State::Done;
                 debug!("anonymous trace token sent");
-                SaslCoroutineState::Yielded(SaslYield::Respond(trace.into_bytes()))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(trace.into_bytes()))
             }
-            State::Responded => {
+            State::Done => {
                 let err = SaslAnonymousError::UnexpectedChallenge;
                 SaslCoroutineState::Complete(Err(err))
             }
@@ -114,8 +114,8 @@ impl SaslCoroutine for SaslAnonymous {
 }
 
 enum State {
-    Start,
-    Responded,
+    SendTraceToken,
+    Done,
 }
 
 #[cfg(test)]
@@ -167,8 +167,8 @@ mod tests {
 
     fn respond(auth: &mut SaslAnonymous, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
-            SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
-            state => panic!("expected Respond, got {state:?}"),
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
+            state => panic!("expected WantsWrite, got {state:?}"),
         }
     }
 }

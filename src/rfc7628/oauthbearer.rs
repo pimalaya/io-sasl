@@ -33,7 +33,7 @@
 //!
 //! let state = auth.resume(SaslResume::Start);
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the token");
 //! };
 //!
@@ -44,7 +44,7 @@
 //! // the server can end the exchange.
 //! let state = auth.resume(SaslResume::Challenge(br#"{"status":"401"}"#));
 //!
-//! let SaslCoroutineState::Yielded(SaslYield::Respond(ack)) = state else {
+//! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(ack)) = state else {
 //!     panic!("expected the error acknowledgement");
 //! };
 //!
@@ -119,7 +119,7 @@ impl SaslOauthbearer {
     pub fn new(creds: SaslOauthbearerCreds) -> Self {
         Self {
             creds,
-            state: State::Start,
+            state: State::SendToken,
         }
     }
 }
@@ -136,7 +136,7 @@ impl SaslCoroutine for SaslOauthbearer {
         arg: SaslResume<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
-            (State::Start, SaslResume::Start) => {
+            (State::SendToken, SaslResume::Start) => {
                 let host = &self.creds.host;
                 let port = self.creds.port;
                 let token = self.creds.token.expose_secret();
@@ -155,18 +155,18 @@ impl SaslCoroutine for SaslOauthbearer {
                 payload.push(0x01);
                 payload.push(0x01);
 
-                self.state = State::Responded;
+                self.state = State::Done;
                 debug!("oauthbearer token sent");
-                SaslCoroutineState::Yielded(SaslYield::Respond(payload))
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload))
             }
-            (State::Responded, SaslResume::Challenge(json)) => {
+            (State::Done, SaslResume::Challenge(json)) => {
                 let json = String::from_utf8_lossy(json).to_string();
                 debug!("oauthbearer token rejected, acknowledging the error");
                 trace!("{json}");
-                self.state = State::Rejected(json);
-                SaslCoroutineState::Yielded(SaslYield::Respond(vec![0x01]))
+                self.state = State::Fail(json);
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(vec![0x01]))
             }
-            (State::Rejected(json), SaslResume::PeerFinished) => {
+            (State::Fail(json), SaslResume::PeerFinished) => {
                 let err = SaslOauthbearerError::Rejected(json.clone());
                 SaslCoroutineState::Complete(Err(err))
             }
@@ -183,9 +183,9 @@ impl SaslCoroutine for SaslOauthbearer {
 }
 
 enum State {
-    Start,
-    Responded,
-    Rejected(String),
+    SendToken,
+    Done,
+    Fail(String),
 }
 
 #[cfg(test)]
@@ -263,8 +263,8 @@ mod tests {
 
     fn respond(auth: &mut SaslOauthbearer, arg: SaslResume<'_>) -> Vec<u8> {
         match auth.resume(arg) {
-            SaslCoroutineState::Yielded(SaslYield::Respond(bytes)) => bytes,
-            state => panic!("expected Respond, got {state:?}"),
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(bytes)) => bytes,
+            state => panic!("expected WantsWrite, got {state:?}"),
         }
     }
 }

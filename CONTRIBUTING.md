@@ -17,6 +17,8 @@ A mechanism names its coroutine, its failure type and its credential struct afte
 
 This is a local exception, not a rule change. A new mechanism follows it; anything outside this crate follows the canon.
 
+Everything else follows io-imap, since the two crates are read together. A yield names what the caller is asked to do (`WantsWrite`, `WantsChallenge`), and a mechanism's private state enum names what its next resume is about to do (`SendUsername`, `SendPassword`, `Done`), never what the previous one did.
+
 ## Feature matrix
 
 The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. The only cargo feature is `scram`, which is enabled by default and pulls in the HMAC, PBKDF2, SHA-256 and base64 crates that SCRAM-SHA-256 needs. Build both shapes, since the reduced one is what a consumer picks when it only speaks the cleartext and OAuth mechanisms.

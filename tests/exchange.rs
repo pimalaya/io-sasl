@@ -44,10 +44,10 @@ fn every_mechanism_answers_start_with_an_initial_response() {
 
         // NOTE: none of the six is server-first, and a protocol crate
         // relies on that when it decides about SASL-IR: a mechanism
-        // answering AwaitChallenge here would need the command sent
+        // answering WantsChallenge here would need the command sent
         // without an initial response.
         match mechanism.step(SaslResume::Start) {
-            SaslCoroutineState::Yielded(SaslYield::Respond(_)) => {}
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(_)) => {}
             state => panic!("{name} has no initial response: {state:?}"),
         }
     }
@@ -63,7 +63,7 @@ fn every_exchange_yields_the_payloads_its_specification_defines() {
 
             match (&step, &expected) {
                 (
-                    SaslCoroutineState::Yielded(SaslYield::Respond(payload)),
+                    SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)),
                     Expect::Responds(bytes),
                 ) => {
                     assert_eq!(payload, bytes, "{name} sent an unexpected payload");

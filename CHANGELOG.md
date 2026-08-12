@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the `SaslCoroutine` trait, the I/O-free contract every mechanism implements.
 
-  A `mechanism()` method naming the mechanism on the wire, and a `resume(SaslResume)` method returning `SaslCoroutineState<SaslYield, Result<(), Error>>`. `SaslResume` is three-cased (`Start`, `Challenge`, `PeerFinished`) so that the end of an exchange stays distinguishable from a challenge, and `SaslYield` is either `Respond(Vec<u8>)` or `AwaitChallenge` for a server-first mechanism.
+  A `mechanism()` method naming the mechanism on the wire, and a `resume(SaslResume)` method returning `SaslCoroutineState<SaslYield, Result<(), Error>>`. `SaslResume` is three-cased (`Start`, `Challenge`, `PeerFinished`) so that the end of an exchange stays distinguishable from a challenge, and `SaslYield` is either `WantsWrite(Vec<u8>)` or `WantsChallenge` for a server-first mechanism.
 
 - Added the SASL vocabulary, moved from `pimalaya-stream`.
 

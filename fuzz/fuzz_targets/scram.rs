@@ -92,7 +92,7 @@ impl Exchange {
 
         let started = auth.resume(SaslResume::Start);
 
-        let SaslCoroutineState::Yielded(SaslYield::Respond(client_first)) = started else {
+        let SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_first)) = started else {
             panic!("SCRAM-SHA-256 answered Start with {started:?} instead of a response");
         };
 
@@ -122,10 +122,10 @@ impl Exchange {
             }
 
             match auth.resume(SaslResume::Challenge(&challenge)) {
-                SaslCoroutineState::Yielded(SaslYield::Respond(payload)) => {
+                SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) => {
                     oracle.responded(&challenge, &payload)
                 }
-                SaslCoroutineState::Yielded(SaslYield::AwaitChallenge) => {}
+                SaslCoroutineState::Yielded(SaslYield::WantsChallenge) => {}
                 SaslCoroutineState::Complete(completed) => {
                     oracle.completed(completed);
                     return;
