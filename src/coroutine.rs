@@ -25,9 +25,9 @@ pub enum SaslCoroutineState<Y, R> {
 
 /// What the protocol crate feeds back into the mechanism.
 ///
-/// Challenges are carried already base64-decoded: transport encoding
-/// belongs to the protocol, which decodes an IMAP continuation request
-/// or an SMTP 334 line before handing the bytes over.
+/// Input is carried already base64-decoded: transport encoding belongs
+/// to the protocol, which decodes an IMAP continuation request or an
+/// SMTP 334 line before handing the bytes over.
 #[derive(Debug, Default)]
 pub enum SaslArg<'a> {
     /// Nothing has been exchanged yet.
@@ -35,14 +35,22 @@ pub enum SaslArg<'a> {
     /// A mechanism answering [`SaslYield::WantsWrite`] has an initial
     /// response ([RFC 4422 section 3]), which the protocol may inline
     /// in its authentication command when its grammar allows it. A
-    /// mechanism answering [`SaslYield::WantsChallenge`] is
-    /// server-first and has nothing to say yet.
+    /// mechanism answering [`SaslYield::WantsRead`] is server-first
+    /// and has nothing to say yet.
     ///
     /// [RFC 4422 section 3]: https://www.rfc-editor.org/rfc/rfc4422#section-3
     #[default]
     None,
-    /// The peer sent this (already base64-decoded) challenge.
-    Challenge(&'a [u8]),
+    /// The bytes the mechanism asked for.
+    ///
+    /// For a mechanism computing its own payloads, which is all of them
+    /// but one, this is the challenge the peer sent, decoded. For a
+    /// mechanism relaying an outside security context
+    /// ([`crate::rfc4752::gssapi`]) it is what that context produced
+    /// from the peer's message, since the relay computes nothing and
+    /// the caller is what holds the context. The variant is named for
+    /// the role rather than for the origin, so that both fit.
+    Input(&'a [u8]),
     /// The peer ended the exchange (an IMAP tagged OK, an SMTP 235,
     /// ...) without a further challenge.
     Done,
@@ -50,17 +58,24 @@ pub enum SaslArg<'a> {
 
 /// What the mechanism wants the protocol crate to do next.
 ///
-/// The shape mirrors io-imap's yield, one variant per direction, but
-/// the read side is named after the challenge rather than after the
-/// read: the caller does not hand over what it read, it hands over what
-/// is left once its framing and its base64 are stripped off.
+/// The two variants are io-imap's, down to the word, so that a driver
+/// written against both crates matches on one vocabulary. Each names
+/// the caller's action rather than the mechanism's, since the caller is
+/// what has to act before the next resume.
+///
+/// What the crates differ on is not the yield but what comes back from
+/// a read: io-imap resumes with the bytes it read, while here the
+/// caller strips its framing and its transport base64 first, and a
+/// relaying mechanism gets what the caller's own security context made
+/// of the result. That is why the argument carrying it is named
+/// [`SaslArg::Input`], for its role rather than for its origin.
 #[derive(Debug)]
 pub enum SaslYield {
-    /// The mechanism has nothing to send and wants the peer's next
-    /// challenge, which comes back as [`SaslArg::Challenge`], or as
-    /// [`SaslArg::PeerFinished`] when the peer ends the exchange
-    /// instead of challenging again.
-    WantsChallenge,
+    /// The mechanism has nothing to send and wants what the caller
+    /// reads next, which comes back as [`SaslArg::Input`], or as
+    /// [`SaslArg::Done`] when the peer ends the exchange instead of
+    /// speaking again.
+    WantsRead,
     /// The caller writes these raw bytes as the next response,
     /// base64-encoding and framing them for its own transport first.
     ///
@@ -88,9 +103,9 @@ pub trait SaslCoroutine {
 
     /// Advances the exchange one step.
     ///
-    /// The first call takes [`SaslArg::Start`]. Every following
+    /// The first call takes [`SaslArg::None`]. Every following
     /// call answers the previous yield: a challenge the peer sent, or
-    /// [`SaslArg::PeerFinished`] when the peer closed the exchange
+    /// [`SaslArg::Done`] when the peer closed the exchange
     /// instead of challenging again.
     fn resume(
         &mut self,

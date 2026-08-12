@@ -21,6 +21,7 @@ use io_sasl::{
     login::{SaslLogin, SaslLoginCreds},
     rfc4422::external::{SaslExternal, SaslExternalCreds},
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
+    rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
     rfc5802::{
         SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds,
@@ -63,6 +64,7 @@ fuzz_target!(|exchange: Exchange| {
     // A peer challenging a mechanism that has said nothing yet.
     unstarted(SaslAnonymous::new(exchange.anonymous()), &first);
     unstarted(SaslExternal::new(exchange.external()), &first);
+    unstarted(SaslGssapi::new(exchange.gssapi()), &first);
     unstarted(SaslLogin::new(exchange.login()), &first);
     unstarted(SaslPlain::new(exchange.plain()), &first);
     unstarted(SaslOauthbearer::new(exchange.oauthbearer()), &first);
@@ -78,6 +80,7 @@ fuzz_target!(|exchange: Exchange| {
     // response, as a protocol crate drives it.
     exchange.drive(SaslAnonymous::new(exchange.anonymous()));
     exchange.drive(SaslExternal::new(exchange.external()));
+    exchange.drive(SaslGssapi::new(exchange.gssapi()));
     exchange.drive(SaslLogin::new(exchange.login()));
     exchange.drive(SaslPlain::new(exchange.plain()));
     exchange.drive(SaslOauthbearer::new(exchange.oauthbearer()));
@@ -100,12 +103,12 @@ impl Exchange {
     /// Runs the mechanism from its initial response through every
     /// challenge, stopping where a protocol crate stops.
     fn drive(&self, mut mechanism: impl SaslCoroutine) {
-        if let SaslCoroutineState::Complete(_) = mechanism.resume(SaslArg::Start) {
+        if let SaslCoroutineState::Complete(_) = mechanism.resume(SaslArg::None) {
             return;
         }
 
         for challenge in &self.challenges {
-            let step = mechanism.resume(SaslArg::Challenge(challenge));
+            let step = mechanism.resume(SaslArg::Input(challenge));
 
             if let SaslCoroutineState::Complete(_) = step {
                 return;
@@ -113,7 +116,7 @@ impl Exchange {
         }
 
         if self.peer_finishes {
-            let _ = mechanism.resume(SaslArg::PeerFinished);
+            let _ = mechanism.resume(SaslArg::Done);
         }
     }
 
@@ -154,6 +157,12 @@ impl Exchange {
         }
     }
 
+    fn gssapi(&self) -> SaslGssapiCreds {
+        SaslGssapiCreds {
+            token: self.token.clone().into_bytes(),
+        }
+    }
+
     fn external(&self) -> SaslExternalCreds {
         SaslExternalCreds {
             authzid: Some(self.username.clone()),
@@ -181,7 +190,7 @@ impl Exchange {
 
 /// Challenges a mechanism that was never resumed with `Start`.
 fn unstarted(mut mechanism: impl SaslCoroutine, challenge: &[u8]) {
-    let _ = mechanism.resume(SaslArg::Challenge(challenge));
+    let _ = mechanism.resume(SaslArg::Input(challenge));
 }
 
 /// Whether a challenge is cheap enough to feed SCRAM-SHA-256.

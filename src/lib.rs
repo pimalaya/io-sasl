@@ -21,15 +21,21 @@
 //! command grammars, their continuation requests and their reply
 //! codes, and share the mechanisms.
 //!
-//! Every mechanism is client-side, and the set is the registered ones a
-//! client can run without an external security library: ANONYMOUS,
-//! EXTERNAL, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM profiles
-//! SHA-1, SHA-256 and SHA-512, each of those under both the name it is
-//! registered with and the `-PLUS` name it takes when a channel binding
-//! is in use. Server-side SASL is out of scope, and so is the GSSAPI
-//! family: its tokens come from a Kerberos implementation that reads a
-//! credential cache and talks to a KDC, which is I/O this crate cannot
-//! host and cannot hoist into its credentials either.
+//! Every mechanism is client-side: ANONYMOUS, EXTERNAL, GSSAPI, LOGIN,
+//! PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM profiles SHA-1, SHA-256
+//! and SHA-512, each of those under both the name it is registered with
+//! and the `-PLUS` name it takes when a channel binding is in use.
+//! Server-side SASL is out of scope.
+//!
+//! Eleven of the twelve compute what they send. GSSAPI cannot: its
+//! tokens come from a Kerberos implementation that reads a credential
+//! cache and talks to a KDC, which is I/O this crate can neither host
+//! nor hoist into its credentials. It is carried anyway, as a relay:
+//! [`rfc4752::gssapi`] holds the SASL half of the mechanism, the name,
+//! the initial response and the sequencing, while the caller holds the
+//! security context. That is the building block a consumer needs, not
+//! the whole mechanism, and the module says exactly where the line
+//! falls.
 //!
 //! ## Layout
 //!
@@ -40,6 +46,8 @@
 //!   framework itself
 //! - [`rfc4505::anonymous`], the ANONYMOUS mechanism
 //! - [`rfc4616::plain`], the PLAIN mechanism
+//! - [`rfc4752::gssapi`], the GSSAPI mechanism, relayed rather than
+//!   computed
 //! - [`rfc5802`], the SCRAM family and its SHA-1 profile
 //!   ([`rfc5802::scram_sha_1`], behind the `scram-sha-1` cargo feature)
 //! - [`rfc7628::oauthbearer`], the OAUTHBEARER mechanism
@@ -88,14 +96,14 @@
 //! The resume argument has three cases rather than an optional
 //! challenge, because "the peer ended the exchange" has to stay
 //! distinguishable from "here is a challenge". On
-//! [`coroutine::SaslArg::PeerFinished`] the one-shot mechanisms
+//! [`coroutine::SaslArg::Done`] the one-shot mechanisms
 //! complete `Ok`, while every SCRAM profile completes `Err` whenever the
 //! server signature has not been verified yet. Were the protocol crate
 //! deciding for itself when an exchange ends, PLAIN and SCRAM would
 //! look identical from outside, send then await the success reply, and
 //! SCRAM's mutual authentication would be skipped by omission.
 //!
-//! The first resume takes [`coroutine::SaslArg::Start`]. A
+//! The first resume takes [`coroutine::SaslArg::None`]. A
 //! mechanism answering it with [`coroutine::SaslYield::WantsWrite`] has
 //! an initial response ([RFC 4422]), which the protocol may inline in
 //! its authentication command: IMAP needs the `SASL-IR` capability
@@ -103,7 +111,7 @@
 //! [RFC 4954] grammar. Whether to inline it, and whether a given
 //! server can be trusted to accept it, is the protocol crate's
 //! decision, not this crate's. A mechanism answering
-//! [`coroutine::SaslYield::WantsChallenge`] is server-first instead;
+//! [`coroutine::SaslYield::WantsRead`] is server-first instead;
 //! none of the mechanisms here is, but the vocabulary expresses it.
 //!
 //! ## Boundaries
@@ -164,6 +172,7 @@ pub mod mechanism;
 pub mod rfc4422;
 pub mod rfc4505;
 pub mod rfc4616;
+pub mod rfc4752;
 #[cfg(feature = "scram")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
 pub mod rfc5802;

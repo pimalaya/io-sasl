@@ -13,7 +13,8 @@
 use crate::{
     login::SaslLoginCreds, rfc4422::external::SaslExternalCreds,
     rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
-    rfc7628::oauthbearer::SaslOauthbearerCreds, xoauth2::SaslXoauth2Creds,
+    rfc4752::gssapi::SaslGssapiCreds, rfc7628::oauthbearer::SaslOauthbearerCreds,
+    xoauth2::SaslXoauth2Creds,
 };
 
 #[cfg(feature = "scram")]
@@ -30,6 +31,8 @@ pub enum SaslMechanism {
     Anonymous,
     /// The EXTERNAL mechanism (RFC 4422 appendix A).
     External,
+    /// The GSSAPI mechanism, Kerberos V5 (RFC 4752).
+    Gssapi,
     /// The legacy LOGIN mechanism.
     Login,
     /// The PLAIN mechanism (RFC 4616).
@@ -60,6 +63,7 @@ impl SaslMechanism {
         match self {
             Self::Anonymous => "ANONYMOUS",
             Self::External => "EXTERNAL",
+            Self::Gssapi => "GSSAPI",
             Self::Login => "LOGIN",
             Self::Plain => "PLAIN",
             Self::OAuthBearer => "OAUTHBEARER",
@@ -93,6 +97,8 @@ pub enum Sasl {
     Anonymous(SaslAnonymousCreds),
     /// EXTERNAL credentials.
     External(SaslExternalCreds),
+    /// GSSAPI credentials.
+    Gssapi(SaslGssapiCreds),
     /// LOGIN credentials.
     Login(SaslLoginCreds),
     /// PLAIN credentials.
@@ -124,6 +130,12 @@ impl From<SaslAnonymousCreds> for Sasl {
 impl From<SaslExternalCreds> for Sasl {
     fn from(sasl: SaslExternalCreds) -> Self {
         Self::External(sasl)
+    }
+}
+
+impl From<SaslGssapiCreds> for Sasl {
+    fn from(sasl: SaslGssapiCreds) -> Self {
+        Self::Gssapi(sasl)
     }
 }
 
@@ -164,7 +176,8 @@ mod tests {
     use crate::{
         login::SaslLoginCreds, mechanism::*, rfc4422::external::SaslExternalCreds,
         rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
-        rfc7628::oauthbearer::SaslOauthbearerCreds, xoauth2::SaslXoauth2Creds,
+        rfc4752::gssapi::SaslGssapiCreds, rfc7628::oauthbearer::SaslOauthbearerCreds,
+        xoauth2::SaslXoauth2Creds,
     };
 
     #[cfg(feature = "scram")]
@@ -209,10 +222,11 @@ mod tests {
     /// missing one, it is two of them landing on the same place, which
     /// only a walk over all of them can see. The table is whole
     /// whatever the build enables, since so is the tag.
-    fn names() -> [(SaslMechanism, &'static str); 12] {
+    fn names() -> [(SaslMechanism, &'static str); 13] {
         [
             (SaslMechanism::Anonymous, "ANONYMOUS"),
             (SaslMechanism::External, "EXTERNAL"),
+            (SaslMechanism::Gssapi, "GSSAPI"),
             (SaslMechanism::Login, "LOGIN"),
             (SaslMechanism::Plain, "PLAIN"),
             (SaslMechanism::OAuthBearer, "OAUTHBEARER"),
@@ -241,6 +255,13 @@ mod tests {
             (
                 SaslMechanism::External,
                 SaslExternalCreds { authzid: None }.into(),
+            ),
+            (
+                SaslMechanism::Gssapi,
+                SaslGssapiCreds {
+                    token: b"token".to_vec(),
+                }
+                .into(),
             ),
             (
                 SaslMechanism::Login,
@@ -321,6 +342,7 @@ mod tests {
         match sasl {
             Sasl::Anonymous(_) => SaslMechanism::Anonymous,
             Sasl::External(_) => SaslMechanism::External,
+            Sasl::Gssapi(_) => SaslMechanism::Gssapi,
             Sasl::Login(_) => SaslMechanism::Login,
             Sasl::Plain(_) => SaslMechanism::Plain,
             Sasl::Oauthbearer(_) => SaslMechanism::OAuthBearer,

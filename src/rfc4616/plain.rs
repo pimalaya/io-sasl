@@ -23,7 +23,7 @@
 //! // The protocol crate base64-encodes the payload and writes it as
 //! // its authentication command, inline as an initial response or as
 //! // the answer to the first continuation request.
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the credentials");
@@ -33,7 +33,7 @@
 //!
 //! // The server accepted, so its success reply ends the exchange
 //! // without a further challenge.
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -194,7 +194,7 @@ mod tests {
         let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"")),
+            auth.resume(SaslArg::Input(b"")),
             SaslCoroutineState::Complete(Err(SaslPlainError::UnexpectedChallenge)),
         ));
     }

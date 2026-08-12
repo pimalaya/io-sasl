@@ -31,7 +31,7 @@
 //!     token: SecretString::from("expired"),
 //! });
 //!
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the token");
@@ -42,7 +42,7 @@
 //! // The server refused the token and describes why in a JSON
 //! // challenge, which the mechanism acknowledges with a single %x01 so
 //! // the server can end the exchange.
-//! let state = auth.resume(SaslArg::Challenge(br#"{"status":"401"}"#));
+//! let state = auth.resume(SaslArg::Input(br#"{"status":"401"}"#));
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(ack)) = state else {
 //!     panic!("expected the error acknowledgement");
@@ -51,7 +51,7 @@
 //! assert_eq!(ack, [0x01]);
 //!
 //! // Only now does the exchange end, and the failure carries the JSON.
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(Err(err)) = state else {
 //!     panic!("expected the refused token to fail");
@@ -159,7 +159,7 @@ impl SaslCoroutine for SaslOauthbearer {
                 debug!("oauthbearer token sent");
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload))
             }
-            (State::Done, SaslArg::Challenge(json)) => {
+            (State::Done, SaslArg::Input(json)) => {
                 let json = String::from_utf8_lossy(json).to_string();
                 debug!("oauthbearer token rejected, acknowledging the error");
                 trace!("{json}");
@@ -227,7 +227,7 @@ mod tests {
 
         let _ = respond(&mut auth, SaslArg::None);
 
-        assert_eq!(respond(&mut auth, SaslArg::Challenge(json)), [0x01]);
+        assert_eq!(respond(&mut auth, SaslArg::Input(json)), [0x01]);
 
         let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslArg::Done) else {
             panic!("expected Complete(Err)");
@@ -244,10 +244,10 @@ mod tests {
         let json = br#"{"status":"invalid_token"}"#;
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(json));
+        let _ = respond(&mut auth, SaslArg::Input(json));
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(json)),
+            auth.resume(SaslArg::Input(json)),
             SaslCoroutineState::Complete(Err(SaslOauthbearerError::UnexpectedChallenge)),
         ));
     }

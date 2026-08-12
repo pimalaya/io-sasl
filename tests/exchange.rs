@@ -3,21 +3,28 @@
 //! The unit tests pin each mechanism's payloads against its own
 //! specification, one mechanism at a time. What they cannot pin is the
 //! part io-imap and io-smtp actually depend on: that every mechanism
-//! behave identically at the edges of an exchange, so a single generic
-//! driver can carry every one of them. So everything here goes through
-//! the public API only, and every test is a property over the whole
+//! behaves the same at the edges of an exchange, so a single generic
+//! driver can carry all of them. So everything here goes through the
+//! public API only, and every test is a property over the whole
 //! mechanism set rather than a statement about one member of it, which
-//! is what makes a seventh mechanism getting an edge wrong fail here
-//! instead of in a protocol crate.
+//! is what makes a mechanism added later getting an edge wrong fail
+//! here instead of in a protocol crate.
 //!
 //! Three of those properties are load-bearing. Every mechanism answers
 //! the first resume with a response, which is what lets a protocol
 //! decide whether to inline it as an initial response. Every mechanism
-//! completes on `PeerFinished`, and a SCRAM profile completes `Err` on it
+//! completes on `Done`, and a SCRAM profile completes `Err` on it
 //! unless the server signature was verified, which is what stops mutual
-//! authentication from being skipped by omission. And a challenge
-//! arriving after a mechanism has said its last word fails everywhere,
-//! rather than being answered or mistaken for a success.
+//! authentication from being skipped by omission. And no mechanism ever
+//! answers stray input with a success.
+//!
+//! Two of the properties are stated per class rather than universally,
+//! because a mechanism relaying an outside security context genuinely
+//! differs: it cannot refuse stray input, having no way to know the
+//! round count, and it cannot refuse an early end, mutual
+//! authentication living inside tokens it does not read. Each is a
+//! predicate with an exhaustive match, so a mechanism added later has
+//! to answer both questions before this file compiles.
 
 use core::fmt::Display;
 
@@ -28,6 +35,7 @@ use io_sasl::{
     rfc4422::external::{SaslExternal, SaslExternalCreds},
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
+    rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
     xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
@@ -52,7 +60,7 @@ fn every_mechanism_answers_start_with_an_initial_response() {
 
         // NOTE: none of the six is server-first, and a protocol crate
         // relies on that when it decides about SASL-IR: a mechanism
-        // answering WantsChallenge here would need the command sent
+        // answering WantsRead here would need the command sent
         // without an initial response.
         match mechanism.step(SaslArg::None) {
             SaslCoroutineState::Yielded(SaslYield::WantsWrite(_)) => {}
@@ -123,7 +131,7 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
             SaslScramChannelBinding::Unsupported,
         ));
 
-        let prefix = [SaslArg::None, SaslArg::Challenge(SERVER_FIRST)];
+        let prefix = [SaslArg::None, SaslArg::Input(SERVER_FIRST)];
 
         for arg in prefix.into_iter().take(sent) {
             let _ = auth.resume(arg);
@@ -143,9 +151,10 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
 }
 
 #[test]
-fn an_extra_challenge_after_the_exchange_completes_unexpected_challenge() {
+fn no_mechanism_answers_stray_input_with_a_success() {
     for (mut mechanism, script) in exchanges() {
-        let name = mechanism.tag().as_str();
+        let tag = mechanism.tag();
+        let name = tag.as_str();
 
         for (arg, _) in script {
             let _ = mechanism.step(arg);
@@ -154,15 +163,14 @@ fn an_extra_challenge_after_the_exchange_completes_unexpected_challenge() {
         // NOTE: OAUTHBEARER and XOAUTH2 read a challenge arriving after
         // their payload as the server's error JSON, and owe it one
         // acknowledgement before they can fail, so the refusal is
-        // allowed a few steps. What may never happen is a second
-        // success, or an endless conversation.
+        // allowed a few steps.
         let mut failure = None;
 
-        for _ in 0..EXTRA_CHALLENGES {
-            match mechanism.step(SaslArg::Challenge(b"{}")) {
+        for _ in 0..EXTRA_INPUTS {
+            match mechanism.step(SaslArg::Input(b"{}")) {
                 SaslCoroutineState::Yielded(_) => continue,
                 SaslCoroutineState::Complete(Ok(())) => {
-                    panic!("{name} answered a stray challenge with success")
+                    panic!("{name} answered stray input with success")
                 }
                 SaslCoroutineState::Complete(Err(err)) => {
                     failure = Some(err);
@@ -171,18 +179,34 @@ fn an_extra_challenge_after_the_exchange_completes_unexpected_challenge() {
             }
         }
 
-        let err = failure.unwrap_or_else(|| panic!("{name} never refused the stray challenges"));
+        // NOTE: the mechanisms computing their own payloads know when
+        // they have said their last word, so stray input is a peer
+        // breaking the exchange and they refuse it. A relay knows
+        // nothing of the sort: the round count belongs to the security
+        // context its caller holds, so it forwards whatever it is fed
+        // and the caller is what stops. Both are correct, and telling
+        // them apart is a decision a new mechanism has to make here.
+        if !refuses_stray_input(tag) {
+            assert!(
+                failure.is_none(),
+                "{name} relays its input, so it cannot know that any of it is stray"
+            );
+
+            continue;
+        }
+
+        let err = failure.unwrap_or_else(|| panic!("{name} never refused the stray input"));
 
         assert!(
             err.contains("unexpected challenge"),
-            "{name} refused the stray challenge for another reason: {err}"
+            "{name} refused the stray input for another reason: {err}"
         );
     }
 }
 
-/// How many stray challenges a mechanism may absorb before it is
-/// expected to have failed.
-const EXTRA_CHALLENGES: usize = 3;
+/// How many stray inputs a mechanism may absorb before it is expected
+/// to have failed.
+const EXTRA_INPUTS: usize = 3;
 
 /// One mechanism paired with the exchange it is expected to run.
 type Exchange = (Box<dyn SaslExchange>, Vec<(SaslArg<'static>, Expect)>);
@@ -239,10 +263,40 @@ fn authenticates_the_server(mechanism: SaslMechanism) -> bool {
     match mechanism {
         SaslMechanism::Anonymous => false,
         SaslMechanism::External => false,
+        // NOTE: GSSAPI does authenticate the server, mutually even, but
+        // inside tokens this crate relays without reading, so the
+        // guarantee belongs to the caller's security context and the
+        // relay has nothing to refuse an early end for.
+        SaslMechanism::Gssapi => false,
         SaslMechanism::Login => false,
         SaslMechanism::Plain => false,
         SaslMechanism::OAuthBearer => false,
         SaslMechanism::XOAuth2 => false,
+        SaslMechanism::ScramSha1 => true,
+        SaslMechanism::ScramSha1Plus => true,
+        SaslMechanism::ScramSha256 => true,
+        SaslMechanism::ScramSha256Plus => true,
+        SaslMechanism::ScramSha512 => true,
+        SaslMechanism::ScramSha512Plus => true,
+    }
+}
+
+/// Whether the mechanism can tell that input it did not expect is
+/// stray, which every mechanism computing its own payloads can and a
+/// relay cannot.
+///
+/// The match is exhaustive on purpose: a mechanism added to the
+/// vocabulary has to answer this question before the properties above
+/// can run.
+fn refuses_stray_input(mechanism: SaslMechanism) -> bool {
+    match mechanism {
+        SaslMechanism::Anonymous => true,
+        SaslMechanism::External => true,
+        SaslMechanism::Gssapi => false,
+        SaslMechanism::Login => true,
+        SaslMechanism::Plain => true,
+        SaslMechanism::OAuthBearer => true,
+        SaslMechanism::XOAuth2 => true,
         SaslMechanism::ScramSha1 => true,
         SaslMechanism::ScramSha1Plus => true,
         SaslMechanism::ScramSha256 => true,
@@ -279,6 +333,9 @@ fn exchanges() -> Vec<Exchange> {
         username: "someuser@example.com".into(),
         token: SecretString::from("vF9dft4qmT"),
     };
+    let gssapi = SaslGssapiCreds {
+        token: b"first token".to_vec(),
+    };
     let external = SaslExternalCreds {
         authzid: Some("alice@localhost".into()),
     };
@@ -299,11 +356,22 @@ fn exchanges() -> Vec<Exchange> {
             ],
         ),
         (
+            Box::new(SaslGssapi::new(gssapi)),
+            vec![
+                (SaslArg::None, Expect::Responds(b"first token")),
+                (
+                    SaslArg::Input(b"a token from the caller's context"),
+                    Expect::Responds(b"a token from the caller's context"),
+                ),
+                (SaslArg::Done, Expect::CompletesOk),
+            ],
+        ),
+        (
             Box::new(SaslLogin::new(login)),
             vec![
                 (SaslArg::None, Expect::Responds(b"alice")),
                 (
-                    SaslArg::Challenge(b"Password:"),
+                    SaslArg::Input(b"Password:"),
                     Expect::Responds(b"pencil"),
                 ),
                 (SaslArg::Done, Expect::CompletesOk),
@@ -471,11 +539,8 @@ fn scram_script(
 ) -> Vec<(SaslArg<'static>, Expect)> {
     vec![
         (SaslArg::None, Expect::Responds(client_first)),
-        (
-            SaslArg::Challenge(server_first),
-            Expect::Responds(client_final),
-        ),
-        (SaslArg::Challenge(server_final), Expect::Responds(b"")),
+        (SaslArg::Input(server_first), Expect::Responds(client_final)),
+        (SaslArg::Input(server_final), Expect::Responds(b"")),
         (SaslArg::Done, Expect::CompletesOk),
     ]
 }

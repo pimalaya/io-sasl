@@ -23,6 +23,7 @@ use io_sasl::{
     rfc4422::external::{SaslExternal, SaslExternalCreds},
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
+    rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
     xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
@@ -81,10 +82,14 @@ fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
         token: SecretString::from("vF9dft4qmT"),
     });
     let external = SaslExternal::new(SaslExternalCreds { authzid: None });
+    let gssapi = SaslGssapi::new(SaslGssapiCreds {
+        token: b"token".to_vec(),
+    });
 
     let mut walk = vec![
         (SaslMechanism::Anonymous, anonymous.mechanism()),
         (SaslMechanism::External, external.mechanism()),
+        (SaslMechanism::Gssapi, gssapi.mechanism()),
         (SaslMechanism::Login, login.mechanism()),
         (SaslMechanism::Plain, plain.mechanism()),
         (SaslMechanism::OAuthBearer, oauthbearer.mechanism()),

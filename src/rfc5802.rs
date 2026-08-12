@@ -7,7 +7,7 @@
 //! proves the same in return. That last proof is mutual authentication:
 //! an exchange ending before the server signature was verified is a
 //! failure, not a success, which is why
-//! [`SaslArg::PeerFinished`] arriving early completes
+//! [`SaslArg::Done`] arriving early completes
 //! [`SaslScramError::ServerSignatureNotVerified`].
 //!
 //! ## What a profile adds
@@ -405,7 +405,7 @@ impl<D: SaslScramDigest> SaslCoroutine for SaslScram<D> {
                 trace!("{client_first}");
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_first.into_bytes()))
             }
-            (State::SendClientFinal, SaslArg::Challenge(server_first)) => {
+            (State::SendClientFinal, SaslArg::Input(server_first)) => {
                 let client_final = match self.client_final(server_first) {
                     Ok(client_final) => client_final,
                     Err(err) => return SaslCoroutineState::Complete(Err(err)),
@@ -415,7 +415,7 @@ impl<D: SaslScramDigest> SaslCoroutine for SaslScram<D> {
                 debug!("server-first-message received, client-final-message sent");
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_final))
             }
-            (State::Acknowledge, SaslArg::Challenge(server_final)) => {
+            (State::Acknowledge, SaslArg::Input(server_final)) => {
                 if let Err(err) = self.verify_server_final(server_final) {
                     return SaslCoroutineState::Complete(Err(err));
                 }
@@ -484,7 +484,7 @@ mod tests {
         let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
 
         assert!(matches!(
             auth.resume(SaslArg::Done),
@@ -501,7 +501,7 @@ mod tests {
         let server_first = "r=someOtherNonce,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(server_first.as_bytes())),
+            auth.resume(SaslArg::Input(server_first.as_bytes())),
             SaslCoroutineState::Complete(Err(SaslScramError::NonceMismatch)),
         ));
     }
@@ -511,12 +511,12 @@ mod tests {
         let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
 
         let server_final = "v=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(server_final.as_bytes())),
+            auth.resume(SaslArg::Input(server_final.as_bytes())),
             SaslCoroutineState::Complete(Err(SaslScramError::ServerSignatureMismatch)),
         ));
     }
@@ -526,10 +526,10 @@ mod tests {
         let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
 
         let SaslCoroutineState::Complete(Err(err)) =
-            auth.resume(SaslArg::Challenge(b"e=invalid-proof"))
+            auth.resume(SaslArg::Input(b"e=invalid-proof"))
         else {
             panic!("expected Complete(Err)");
         };
@@ -564,7 +564,7 @@ mod tests {
 
         assert!(client_first.starts_with(b"y,,n=user"));
 
-        let client_final = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let client_final = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
 
         // NOTE: c=eSws is the base64 of "y,,", so the flag the server
         // read is repeated inside the signed client-final-message and
@@ -588,7 +588,7 @@ mod tests {
 
         assert!(client_first.starts_with(b"p=tls-exporter,,n=user"));
 
-        let client_final = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let client_final = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
         let client_final = String::from_utf8(client_final).expect("utf8 client-final-message");
 
         assert_eq!(
@@ -601,7 +601,7 @@ mod tests {
         );
 
         let server_final = "v=8dbpxwe4DaC4ESpY8u6aAvFeP2ks9+LClF/ADCxyWOE=";
-        let ack = respond(&mut auth, SaslArg::Challenge(server_final.as_bytes()));
+        let ack = respond(&mut auth, SaslArg::Input(server_final.as_bytes()));
 
         assert!(ack.is_empty());
     }
@@ -632,7 +632,7 @@ mod tests {
 
             assert!(
                 matches!(
-                    auth.resume(SaslArg::Challenge(server_first.as_bytes())),
+                    auth.resume(SaslArg::Input(server_first.as_bytes())),
                     SaslCoroutineState::Complete(Err(_)),
                 ),
                 "a server-first-message with no valid {what} was accepted"
@@ -647,7 +647,7 @@ mod tests {
         let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(&[0xff])),
+            auth.resume(SaslArg::Input(&[0xff])),
             SaslCoroutineState::Complete(Err(SaslScramError::InvalidEncoding)),
         ));
     }
@@ -657,20 +657,20 @@ mod tests {
         let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"r=whatever")),
+            auth.resume(SaslArg::Input(b"r=whatever")),
             SaslCoroutineState::Complete(Err(SaslScramError::InvalidServerFinal)),
         ));
 
         let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"v=not!base64")),
+            auth.resume(SaslArg::Input(b"v=not!base64")),
             SaslCoroutineState::Complete(Err(SaslScramError::InvalidBase64)),
         ));
     }
@@ -680,11 +680,11 @@ mod tests {
         let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
-        let _ = respond(&mut auth, SaslArg::Challenge(SERVER_FINAL.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FINAL.as_bytes()));
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"")),
+            auth.resume(SaslArg::Input(b"")),
             SaslCoroutineState::Complete(Err(SaslScramError::UnexpectedChallenge)),
         ));
     }

@@ -23,7 +23,8 @@ There is no client layer, because the crate performs no I/O of any kind: it comp
 ## Features
 
 - **I/O-free mechanisms**: no_std state machines with no sockets and no async runtime, resumable from any blocking, async or in-memory test harness.
-- **Every mechanism a client can run on its own**: ANONYMOUS, EXTERNAL, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each computing exactly the payloads its specification defines.
+- **Every registered mechanism a mail client meets**: ANONYMOUS, EXTERNAL, GSSAPI, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each computing exactly the payloads its specification defines.
+- **Kerberos as a building block**: GSSAPI is carried as a relay, since its tokens come from a Kerberos implementation that talks to a KDC. The library holds the exchange, the caller holds the security context.
 - **Channel binding**: every SCRAM profile also speaks its `-PLUS` name, which ties the exchange to the TLS connection it runs on and is what stops a machine in the middle from replaying it.
 - **Downgrade detection**: a client that supports channel binding says so even when the server offered no `-PLUS` name, so a server that does support it sees the stripped offer and stops.
 - **Shared vocabulary**: one set of credential types describing what each mechanism needs, shared by every protocol library and by the account wizards that prompt for them.
@@ -32,7 +33,7 @@ There is no client layer, because the crate performs no I/O of any kind: it comp
 - **Credential redaction**: passwords and tokens stay inside secret wrappers and never reach the logs.
 
 > [!TIP]
-> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) to gate the SCRAM cryptography, since it is the only family pulling in extra crates: `scram` for the SHA-2 profiles, enabled by default, and `scram-sha-1` for the legacy one, which is off unless a server asks for it. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
+> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) to gate the SCRAM cryptography, since it is the only family pulling in extra crates: `scram` for the SHA-2 profiles and `scram-sha-1` for the legacy one, both enabled by default. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
 
 ## RFC coverage
 
@@ -41,6 +42,7 @@ There is no client layer, because the crate performs no I/O of any kind: it comp
 | [4422] | The SASL framework: the notion of an authentication exchange, of an initial client response, and the EXTERNAL mechanism that defers to the outer channel |
 | [4505] | The ANONYMOUS mechanism: an optional trace token identifying an unauthenticated user                                  |
 | [4616] | The PLAIN mechanism: the authorization identity, authentication identity and password triple                          |
+| [4752] | The GSSAPI mechanism: the exchange around the Kerberos tokens, which the caller's own security context produces        |
 | [5802] | The SCRAM family: salted password derivation, the client proof, verification of the server signature, the SHA-1 profile, and the channel binding flags including the one that reports a stripped offer |
 | [5929] | The TLS channel bindings a `-PLUS` exchange can be bound to below TLS 1.3, `tls-unique` and `tls-server-end-point`     |
 | [7628] | The OAUTHBEARER mechanism: the bearer token message, and the acknowledgement the server needs to report a failure     |
@@ -54,6 +56,7 @@ Three mechanisms were never standardised: LOGIN follows [draft-murchison-sasl-lo
 [4422]: https://www.rfc-editor.org/rfc/rfc4422
 [4505]: https://www.rfc-editor.org/rfc/rfc4505
 [4616]: https://www.rfc-editor.org/rfc/rfc4616
+[4752]: https://www.rfc-editor.org/rfc/rfc4752
 [5802]: https://www.rfc-editor.org/rfc/rfc5802
 [5929]: https://www.rfc-editor.org/rfc/rfc5929
 [7628]: https://www.rfc-editor.org/rfc/rfc7628

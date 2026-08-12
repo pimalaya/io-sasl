@@ -31,7 +31,7 @@
 //!     channel_binding: SaslScramChannelBinding::Unsupported,
 //! });
 //!
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(first)) = state else {
 //!     panic!("expected the client-first-message");
@@ -41,7 +41,7 @@
 //!
 //! // The server extends the nonce and names its salt and iteration
 //! // count; the mechanism answers with the proof it knows the password.
-//! let server_first = SaslArg::Challenge(
+//! let server_first = SaslArg::Input(
 //!     b"r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096",
 //! );
 //!
@@ -58,7 +58,7 @@
 //! // instead would complete with ServerSignatureNotVerified.
 //! let signature = b"v=rmF9pqV8S7suAoZWja4dJRkFsKQ=";
 //!
-//! let state = auth.resume(SaslArg::Challenge(signature));
+//! let state = auth.resume(SaslArg::Input(signature));
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(ack)) = state else {
 //!     panic!("expected the server-final-message to verify");
@@ -66,7 +66,7 @@
 //!
 //! assert!(ack.is_empty());
 //!
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -123,10 +123,10 @@ mod tests {
 
         assert_eq!(respond(&mut auth, SaslArg::None), CLIENT_FIRST.as_bytes());
 
-        let client_final = respond(&mut auth, SaslArg::Challenge(SERVER_FIRST.as_bytes()));
+        let client_final = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
         assert_eq!(client_final, CLIENT_FINAL.as_bytes());
 
-        let ack = respond(&mut auth, SaslArg::Challenge(SERVER_FINAL.as_bytes()));
+        let ack = respond(&mut auth, SaslArg::Input(SERVER_FINAL.as_bytes()));
         assert!(ack.is_empty());
 
         assert!(matches!(

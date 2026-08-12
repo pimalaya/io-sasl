@@ -17,19 +17,20 @@ A mechanism names its coroutine, its failure type and its credential struct afte
 
 This is a local exception, not a rule change. A new mechanism follows it; anything outside this crate follows the canon.
 
-Everything else follows io-imap, since the two crates are read together. A yield names what the caller is asked to do (`WantsWrite`, `WantsChallenge`), and a mechanism's private state enum names what its next resume is about to do (`SendUsername`, `SendPassword`, `Done`), never what the previous one did.
+Everything else follows io-imap, since the two crates are read together. A yield names what the caller is asked to do (`WantsWrite`, `WantsRead`), and a mechanism's private state enum names what its next resume is about to do (`SendUsername`, `SendPassword`, `Done`), never what the previous one did.
 
 ## Feature matrix
 
-The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Two cargo features, both about cryptography, since nothing else pulls a crate in. `scram` is enabled by default and pulls the HMAC, PBKDF2, SHA-2 and base64 crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `scram-sha-1` adds the SHA-1 profile and its own digest crate, and stays off by default, so a build gets the weakest profile only by asking for it.
+The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Two cargo features, both about cryptography, since nothing else pulls a crate in. `scram` pulls the HMAC, PBKDF2, SHA-2 and base64 crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `scram-sha-1` adds the SHA-1 profile and its own digest crate. Both are in the default set, so the reduced build is the one to remember to check.
 
-Build all three shapes:
+Build the shapes that differ:
 
 ```sh
-cargo build --no-default-features                    # the mechanisms needing no cryptography
-cargo build                                          # the SHA-2 profiles too
-cargo build --all-features                           # everything, SCRAM-SHA-1 included
+cargo build --no-default-features  # the mechanisms needing no cryptography
+cargo build --all-features         # every profile, which is also the default
 ```
+
+A build that wants the SHA-2 profiles without the legacy digest asks for `--no-default-features --features scram`.
 
 ## Tests
 
@@ -37,11 +38,10 @@ Three layers, each answering a different question. The unit tests next to each m
 
 The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it.
 
-Run every feature shape, since each compiles a different set of mechanisms:
+Run both feature shapes, since each compiles a different set of mechanisms:
 
 ```sh
 cargo test --no-default-features
-cargo test
 cargo test --all-features
 ```
 
@@ -55,7 +55,7 @@ cargo tarpaulin --all-features --skip-clean --out Stdout
 
 tarpaulin.toml keeps the fuzz targets out of the measured surface: they are a separate cargo package that the coverage run never builds. Never twist the code to move the number. Code no test can reach is either dead, and goes, or is worth a test that means something on its own.
 
-The number to expect is 97.81%, not 100%, and the gap is a measurement artifact rather than untested code. Six lines of src/rfc5802.rs read as uncovered: the second line of a two-line `format!` call, the tail of the constant-time comparison, and four match-arm patterns whose bodies are counted as covered. They are all inside the generic SCRAM exchange, which the compiler instantiates once per digest, and tarpaulin attributes one address per source line across those instantiations. Both engines report the same six. Mutating any of them makes several tests fail, which is the check to redo rather than trusting this paragraph: the whole point of a coverage run is that nobody has to.
+The number to expect is 97.94%, not 100%, and the gap is a measurement artifact rather than untested code. Six lines of src/rfc5802.rs read as uncovered: the second line of a two-line `format!` call, the tail of the constant-time comparison, and four match-arm patterns whose bodies are counted as covered. They are all inside the generic SCRAM exchange, which the compiler instantiates once per digest, and tarpaulin attributes one address per source line across those instantiations. Both engines report the same six. Mutating any of them makes several tests fail, which is the check to redo rather than trusting this paragraph: the whole point of a coverage run is that nobody has to.
 
 ## Fuzzing
 
@@ -76,7 +76,9 @@ Transport base64 stays with the protocol crate, which decodes a challenge before
 
 Framing errors stay with the protocol crate, including a missing continuation request or a success reply arriving mid-exchange. Only mechanism failures live here: a mismatched signature or nonce, a malformed server message, a rejected token.
 
-Entropy stays with the caller. SCRAM-SHA-256 takes its client nonce as an argument, which is also what makes the published test vectors reproducible.
+Entropy stays with the caller, and so does anything else this crate cannot compute. SCRAM takes its client nonce and its channel binding as credentials, which is also what makes the published test vectors reproducible, and GSSAPI takes the first Kerberos token the same way.
+
+A mechanism whose payloads come from a security context is carried as a relay rather than left out: GSSAPI holds the exchange, the caller holds the context and advances it between two resumes. A relay claims nothing it cannot check, so it verifies nothing, counts nothing, and its module says which guarantees the caller keeps. Adding a second one means answering the two predicates in tests/exchange.rs that already separate the classes.
 
 ## Cryptography changes
 

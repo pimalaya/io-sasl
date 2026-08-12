@@ -23,7 +23,7 @@
 //!
 //! // The empty payload is data, not an absence: it tells the server to
 //! // use the identity the channel already carries.
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the authorization identity");
@@ -31,7 +31,7 @@
 //!
 //! assert!(payload.is_empty());
 //!
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -165,7 +165,7 @@ mod tests {
         let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"")),
+            auth.resume(SaslArg::Input(b"")),
             SaslCoroutineState::Complete(Err(SaslExternalError::UnexpectedChallenge)),
         ));
     }

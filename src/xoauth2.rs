@@ -26,7 +26,7 @@
 //!     token: SecretString::from("vF9dft4qmT"),
 //! });
 //!
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the token");
@@ -40,7 +40,7 @@
 //! // The server accepted, so its success reply ends the exchange. Had
 //! // it refused, it would have sent a JSON error challenge first, which
 //! // the mechanism answers with an empty payload before failing.
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -134,7 +134,7 @@ impl SaslCoroutine for SaslXoauth2 {
                 debug!("xoauth2 token sent");
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload))
             }
-            (State::Done, SaslArg::Challenge(json)) => {
+            (State::Done, SaslArg::Input(json)) => {
                 let json = String::from_utf8_lossy(json).to_string();
                 debug!("xoauth2 token rejected, acknowledging the error");
                 trace!("{json}");
@@ -202,7 +202,7 @@ mod tests {
 
         let _ = respond(&mut auth, SaslArg::None);
 
-        assert!(respond(&mut auth, SaslArg::Challenge(json)).is_empty());
+        assert!(respond(&mut auth, SaslArg::Input(json)).is_empty());
 
         let SaslCoroutineState::Complete(Err(err)) = auth.resume(SaslArg::Done) else {
             panic!("expected Complete(Err)");
@@ -219,10 +219,10 @@ mod tests {
         let json = br#"{"status":"401"}"#;
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(json));
+        let _ = respond(&mut auth, SaslArg::Input(json));
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(json)),
+            auth.resume(SaslArg::Input(json)),
             SaslCoroutineState::Complete(Err(SaslXoauth2Error::UnexpectedChallenge)),
         ));
     }

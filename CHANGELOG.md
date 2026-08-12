@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the `SaslCoroutine` trait, the I/O-free contract every mechanism implements.
 
-  A `mechanism()` method naming the mechanism on the wire, and a `resume(SaslArg)` method returning `SaslCoroutineState<SaslYield, Result<(), Error>>`. `SaslArg` is three-cased (`Start`, `Challenge`, `PeerFinished`) so that the end of an exchange stays distinguishable from a challenge, and `SaslYield` is either `WantsWrite(Vec<u8>)` or `WantsChallenge` for a server-first mechanism.
+  A `mechanism()` method naming the mechanism on the wire, and a `resume(SaslArg)` method returning `SaslCoroutineState<SaslYield, Result<(), Error>>`. `SaslArg` is three-cased (`None`, `Input`, `Done`) so that the end of an exchange stays distinguishable from a message, and `SaslYield` is either `WantsWrite(Vec<u8>)` or `WantsRead` for a server-first mechanism. `Input` is named for its role rather than its origin: the peer's challenge for a mechanism computing its own payloads, the output of the caller's security context for a relay.
 
 - Added the SASL vocabulary, moved from `pimalaya-stream`.
 
@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A rejected token is acknowledged with the empty response Google documents, then reported as a failure carrying the JSON the server sent.
 
 - Added the EXTERNAL mechanism following RFC 4422 appendix A, sending the optional authorization identity and letting the outer channel authenticate.
+
+- Added the GSSAPI mechanism following RFC 4752, as a relay rather than an implementation.
+
+  Its tokens come from a Kerberos implementation that reads a credential cache and talks to a KDC, which this crate can neither host nor hoist into credentials. So `SaslGssapiCreds` carries the first token, every `Input` is forwarded verbatim as the next response, and the caller advances its own security context between the two. The library holds the mechanism name, the initial response and the sequencing; the caller holds the context, the round count and the security layer negotiation of RFC 4752 section 3.1.
 
 - Added the SCRAM family following RFC 5802, behind the `scram` cargo feature, in three profiles: SHA-256 (RFC 7677) and SHA-512 (draft-melnikov-scram-sha-512) by default, SHA-1 (RFC 5802) behind `scram-sha-1`.
 

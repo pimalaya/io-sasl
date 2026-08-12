@@ -17,7 +17,7 @@
 //!     message: Some("alice@localhost".into()),
 //! });
 //!
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) = state else {
 //!     panic!("expected the trace token");
@@ -27,7 +27,7 @@
 //!
 //! // The server accepted, so its success reply ends the exchange
 //! // without a further challenge.
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -160,7 +160,7 @@ mod tests {
         let _ = respond(&mut auth, SaslArg::None);
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"")),
+            auth.resume(SaslArg::Input(b"")),
             SaslCoroutineState::Complete(Err(SaslAnonymousError::UnexpectedChallenge)),
         ));
     }

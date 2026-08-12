@@ -17,7 +17,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["scram", "scram-sha-1"]
+default = ["scram"]
 scram = ["dep:base64", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
 scram-sha-1 = ["scram", "dep:sha1"]
 

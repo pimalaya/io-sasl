@@ -12,7 +12,7 @@
 //! the protocol crate feeds only the second prompt: a server-first
 //! flow answers the empty "Username:" challenge with the initial
 //! response the mechanism already produced on
-//! [`SaslArg::Start`].
+//! [`SaslArg::None`].
 //!
 //! # Example
 //!
@@ -28,7 +28,7 @@
 //!     password: SecretString::from("pencil"),
 //! });
 //!
-//! let state = auth.resume(SaslArg::Start);
+//! let state = auth.resume(SaslArg::None);
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(user)) = state else {
 //!     panic!("expected the username");
@@ -38,7 +38,7 @@
 //!
 //! // The server prompts for the password. The prompt is human-readable
 //! // filler the mechanism ignores, the step alone being what matters.
-//! let state = auth.resume(SaslArg::Challenge(b"Password:"));
+//! let state = auth.resume(SaslArg::Input(b"Password:"));
 //!
 //! let SaslCoroutineState::Yielded(SaslYield::WantsWrite(pass)) = state else {
 //!     panic!("expected the password");
@@ -46,7 +46,7 @@
 //!
 //! assert_eq!(pass, b"pencil");
 //!
-//! let state = auth.resume(SaslArg::PeerFinished);
+//! let state = auth.resume(SaslArg::Done);
 //!
 //! let SaslCoroutineState::Complete(result) = state else {
 //!     panic!("expected the exchange to end");
@@ -163,10 +163,7 @@ mod tests {
         let mut auth = SaslLogin::new(creds());
 
         assert_eq!(respond(&mut auth, SaslArg::None), b"alice");
-        assert_eq!(
-            respond(&mut auth, SaslArg::Challenge(b"Password:")),
-            b"pencil",
-        );
+        assert_eq!(respond(&mut auth, SaslArg::Input(b"Password:")), b"pencil",);
     }
 
     #[test]
@@ -174,7 +171,7 @@ mod tests {
         let mut auth = SaslLogin::new(creds());
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(b"Password:"));
+        let _ = respond(&mut auth, SaslArg::Input(b"Password:"));
 
         assert!(matches!(
             auth.resume(SaslArg::Done),
@@ -199,10 +196,10 @@ mod tests {
         let mut auth = SaslLogin::new(creds());
 
         let _ = respond(&mut auth, SaslArg::None);
-        let _ = respond(&mut auth, SaslArg::Challenge(b"Password:"));
+        let _ = respond(&mut auth, SaslArg::Input(b"Password:"));
 
         assert!(matches!(
-            auth.resume(SaslArg::Challenge(b"Password:")),
+            auth.resume(SaslArg::Input(b"Password:")),
             SaslCoroutineState::Complete(Err(SaslLoginError::UnexpectedChallenge)),
         ));
     }
