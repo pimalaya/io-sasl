@@ -10,8 +10,7 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     mechanism::SaslAnonymous,
-//!     rfc4505::anonymous::SaslAuthAnonymous,
+//!     rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
 //! };
 //!
 //! let mut auth = SaslAuthAnonymous::new(SaslAnonymous {
@@ -39,13 +38,12 @@
 //!
 //! [RFC 4505]: https://www.rfc-editor.org/rfc/rfc4505
 
+use alloc::string::String;
+
 use log::debug;
 use thiserror::Error;
 
-use crate::{
-    coroutine::*,
-    mechanism::{SaslAnonymous, SaslMechanism},
-};
+use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the ANONYMOUS exchange.
 #[derive(Clone, Debug, Error)]
@@ -54,6 +52,18 @@ pub enum SaslAuthAnonymousError {
     /// or out of order.
     #[error("SASL ANONYMOUS failed: unexpected challenge after the trace token")]
     UnexpectedChallenge,
+}
+
+/// ANONYMOUS mechanism credentials ([RFC 4505]).
+///
+/// Carries an optional trace token (typically an email-like string the
+/// server can log); no secrets.
+///
+/// [RFC 4505]: https://www.rfc-editor.org/rfc/rfc4505
+#[derive(Clone, Debug)]
+pub struct SaslAnonymous {
+    /// The optional trace token logged by the server.
+    pub message: Option<String>,
 }
 
 /// I/O-free SASL ANONYMOUS mechanism.
@@ -112,7 +122,7 @@ enum State {
 mod tests {
     use alloc::{string::ToString, vec::Vec};
 
-    use crate::{coroutine::*, mechanism::SaslAnonymous, rfc4505::anonymous::*};
+    use crate::{coroutine::*, rfc4505::anonymous::*};
 
     #[test]
     fn start_responds_with_the_trace_token() {

@@ -18,15 +18,12 @@ use core::str::from_utf8;
 use arbitrary::Arbitrary;
 use io_sasl::{
     coroutine::*,
-    login::SaslAuthLogin,
-    mechanism::{
-        SaslAnonymous, SaslLogin, SaslOauthbearer, SaslPlain, SaslScramSha256, SaslXoauth2,
-    },
-    rfc4505::anonymous::SaslAuthAnonymous,
-    rfc4616::plain::SaslAuthPlain,
-    rfc7628::oauthbearer::SaslAuthOauthbearer,
-    rfc7677::scram_sha_256::SaslAuthScramSha256,
-    xoauth2::SaslAuthXoauth2,
+    login::{SaslAuthLogin, SaslLogin},
+    rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
+    rfc4616::plain::{SaslAuthPlain, SaslPlain},
+    rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslOauthbearer},
+    rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslScramSha256},
+    xoauth2::{SaslAuthXoauth2, SaslXoauth2},
 };
 use libfuzzer_sys::fuzz_target;
 use secrecy::SecretString;

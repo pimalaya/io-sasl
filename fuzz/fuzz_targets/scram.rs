@@ -27,8 +27,7 @@ use base64::{Engine, engine::general_purpose::STANDARD as base64};
 use hmac::{Hmac, KeyInit, Mac};
 use io_sasl::{
     coroutine::*,
-    mechanism::SaslScramSha256,
-    rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslAuthScramSha256Error},
+    rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslAuthScramSha256Error, SaslScramSha256},
 };
 use libfuzzer_sys::fuzz_target;
 use pbkdf2::pbkdf2_hmac;

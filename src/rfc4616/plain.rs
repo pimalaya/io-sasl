@@ -10,8 +10,7 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     mechanism::SaslPlain,
-//!     rfc4616::plain::SaslAuthPlain,
+//!     rfc4616::plain::{SaslAuthPlain, SaslPlain},
 //! };
 //! use secrecy::SecretString;
 //!
@@ -45,16 +44,13 @@
 //!
 //! [RFC 4616]: https://www.rfc-editor.org/rfc/rfc4616
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 use log::debug;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
-use crate::{
-    coroutine::*,
-    mechanism::{SaslMechanism, SaslPlain},
-};
+use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the PLAIN exchange.
 #[derive(Clone, Debug, Error)]
@@ -63,6 +59,22 @@ pub enum SaslAuthPlainError {
     /// or out of order.
     #[error("SASL PLAIN failed: unexpected challenge after the credentials")]
     UnexpectedChallenge,
+}
+
+/// PLAIN mechanism credentials ([RFC 4616]).
+///
+/// Single-message scheme sending `authzid NUL authcid NUL password`;
+/// `authzid` is optional.
+///
+/// [RFC 4616]: https://www.rfc-editor.org/rfc/rfc4616
+#[derive(Clone, Debug)]
+pub struct SaslPlain {
+    /// The optional authorization identity.
+    pub authzid: Option<String>,
+    /// The authentication identity.
+    pub authcid: String,
+    /// The password.
+    pub passwd: SecretString,
 }
 
 /// I/O-free SASL PLAIN mechanism.
@@ -132,7 +144,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, mechanism::SaslPlain, rfc4616::plain::*};
+    use crate::{coroutine::*, rfc4616::plain::*};
 
     #[test]
     fn start_responds_with_the_nul_separated_triple() {

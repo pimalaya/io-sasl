@@ -18,8 +18,9 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     mechanism::SaslOauthbearer,
-//!     rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslAuthOauthbearerError},
+//!     rfc7628::oauthbearer::{
+//!         SaslAuthOauthbearer, SaslAuthOauthbearerError, SaslOauthbearer,
+//!     },
 //! };
 //! use secrecy::SecretString;
 //!
@@ -71,13 +72,10 @@ use alloc::{
 };
 
 use log::{debug, trace};
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
-use crate::{
-    coroutine::*,
-    mechanism::{SaslMechanism, SaslOauthbearer},
-};
+use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the OAUTHBEARER exchange.
 #[derive(Clone, Debug, Error)]
@@ -90,6 +88,24 @@ pub enum SaslAuthOauthbearerError {
     /// or out of order.
     #[error("SASL OAUTHBEARER failed: unexpected challenge")]
     UnexpectedChallenge,
+}
+
+/// OAUTHBEARER mechanism credentials ([RFC 7628]).
+///
+/// `host` and `port` are sent verbatim in the GS2 header and should
+/// match the server being contacted.
+///
+/// [RFC 7628]: https://www.rfc-editor.org/rfc/rfc7628
+#[derive(Clone, Debug)]
+pub struct SaslOauthbearer {
+    /// The account username.
+    pub username: String,
+    /// The server host, sent verbatim in the GS2 header.
+    pub host: String,
+    /// The server port, sent verbatim in the GS2 header.
+    pub port: u16,
+    /// The OAuth 2.0 access token.
+    pub token: SecretString,
 }
 
 /// I/O-free SASL OAUTHBEARER mechanism.
@@ -178,7 +194,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, mechanism::SaslOauthbearer, rfc7628::oauthbearer::*};
+    use crate::{coroutine::*, rfc7628::oauthbearer::*};
 
     #[test]
     fn start_responds_with_the_rfc_7628_example_payload() {

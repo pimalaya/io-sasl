@@ -9,7 +9,10 @@ status: current
 Six client-side mechanisms, each computing exactly what its specification puts on the wire, plus the vocabulary describing their credentials. The source tree follows the specifications: one module per RFC where one exists, and a root module for the two mechanisms that never got one.
 
 ### Requirement: Vocabulary
-The `mechanism` module SHALL hold `SaslMechanism` (the tag, knowing its registered wire name), `Sasl` (the tag plus its credentials), and the six credential structs `SaslAnonymous`, `SaslLogin`, `SaslPlain`, `SaslOauthbearer`, `SaslXoauth2` and `SaslScramSha256`, each convertible into `Sasl`. The tag and the credentials SHALL stay in one module, being two views of one closed set.
+The `mechanism` module SHALL hold `SaslMechanism` (the tag, knowing its registered wire name) and `Sasl` (a tag paired with the credentials of one mechanism). `SaslMechanism` SHALL carry a variant per mechanism whatever the build enables, since a consumer matching a server capability list has to name a mechanism it cannot run.
+
+### Requirement: Credential locality
+Each credential struct SHALL live in the module of the mechanism that transmits it, next to that mechanism's coroutine and failure type, and SHALL be convertible into `Sasl`. A mechanism excluded by a cargo feature SHALL take its credential struct and its `Sasl` variant with it, an exchange this build cannot run having no shape to describe.
 
 ### Requirement: Constructors
 Each mechanism SHALL be built from its own credential struct, so a consumer matching on `Sasl` reaches the mechanism it needs without restating the fields.

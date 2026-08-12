@@ -19,8 +19,7 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     login::SaslAuthLogin,
-//!     mechanism::SaslLogin,
+//!     login::{SaslAuthLogin, SaslLogin},
 //! };
 //! use secrecy::SecretString;
 //!
@@ -59,16 +58,13 @@
 //! [draft-murchison-sasl-login]: https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00
 //! [RFC 4959]: https://www.rfc-editor.org/rfc/rfc4959
 
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 
 use log::debug;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
-use crate::{
-    coroutine::*,
-    mechanism::{SaslLogin, SaslMechanism},
-};
+use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the LOGIN exchange.
 #[derive(Clone, Debug, Error)]
@@ -77,6 +73,22 @@ pub enum SaslAuthLoginError {
     /// or out of order.
     #[error("SASL LOGIN failed: unexpected challenge after the password")]
     UnexpectedChallenge,
+}
+
+/// LOGIN mechanism credentials ([draft-murchison-sasl-login]).
+///
+/// Legacy two-prompt cleartext scheme; also used as the credential
+/// shape for protocol-level `LOGIN` commands (e.g. IMAP `LOGIN`,
+/// [RFC 3501 section 6.2.3]).
+///
+/// [draft-murchison-sasl-login]: https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00
+/// [RFC 3501 section 6.2.3]: https://www.rfc-editor.org/rfc/rfc3501#section-6.2.3
+#[derive(Clone, Debug)]
+pub struct SaslLogin {
+    /// The login username.
+    pub username: String,
+    /// The login password.
+    pub password: SecretString,
 }
 
 /// I/O-free SASL LOGIN mechanism.
@@ -144,7 +156,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, login::*, mechanism::SaslLogin};
+    use crate::{coroutine::*, login::*};
 
     #[test]
     fn exchange_sequences_username_then_password() {

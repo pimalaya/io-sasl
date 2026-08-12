@@ -23,19 +23,18 @@ use core::fmt::Display;
 
 use io_sasl::{
     coroutine::*,
-    login::SaslAuthLogin,
-    mechanism::{SaslAnonymous, SaslLogin, SaslMechanism, SaslOauthbearer, SaslPlain, SaslXoauth2},
-    rfc4505::anonymous::SaslAuthAnonymous,
-    rfc4616::plain::SaslAuthPlain,
-    rfc7628::oauthbearer::SaslAuthOauthbearer,
-    xoauth2::SaslAuthXoauth2,
+    login::{SaslAuthLogin, SaslLogin},
+    mechanism::SaslMechanism,
+    rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
+    rfc4616::plain::{SaslAuthPlain, SaslPlain},
+    rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslOauthbearer},
+    xoauth2::{SaslAuthXoauth2, SaslXoauth2},
 };
 use secrecy::SecretString;
 
 #[cfg(feature = "scram")]
-use io_sasl::{
-    mechanism::SaslScramSha256,
-    rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslAuthScramSha256Error},
+use io_sasl::rfc7677::scram_sha_256::{
+    SaslAuthScramSha256, SaslAuthScramSha256Error, SaslScramSha256,
 };
 
 #[test]

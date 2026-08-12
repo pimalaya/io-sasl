@@ -13,6 +13,8 @@ The crate was bootstrapped and then given its test harness on the same day, both
 
 The fuzz job entered its shell with nix-shell fuzz/shell.nix, which resolves nixpkgs through NIX_PATH. A flake-only CI runner has no channel, so both fuzz steps failed at every push while the library they guard kept reporting green. The same file also pinned fenix through a fetchTarball, so the toolchain drifted away from flake.lock on every run.
 
+The six credential structs sat together in the mechanism module, which naming-005 rules out: a type attached to one coroutine belongs in that coroutine's file, and what a mechanism transmits is attached to nothing else. The catalogue also outlived its own build, since a SCRAM credential struct exists whether or not the mechanism reading it was compiled.
+
 No module carried a runnable example. The API is documented item by item, but nothing on docs.rs showed an exchange being driven, and driving it correctly is the whole contract: a consumer that stops at the success reply skips the SCRAM server verification, which is the failure this crate exists to prevent.
 
 The cairn/ folder shipped spec/ and log/ but no changes/, which the Cairn conformance rules require.
@@ -22,6 +24,8 @@ The cairn/ folder shipped spec/ and log/ but no changes/, which the Cairn confor
 Walk the whole rule set, apply every fix, and record the result.
 
 Expose the fuzz shell as the `fuzz` devShell of the repository flake, so it inherits the pinned nixpkgs and fenix, and point the CI job and fuzz/README.md at it. Keep fuzz/shell.nix callable on its own for a machine that does have a channel.
+
+Move each credential struct next to the coroutine that transmits it, leaving the mechanism module holding the tag and the enum gathering them, and let the SCRAM variant follow its struct behind the feature.
 
 Give every mechanism module a runnable example driving its exchange step by step, compiled as a doctest, and say so in the crate header and the README.
 

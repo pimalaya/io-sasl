@@ -1,19 +1,28 @@
-//! Protocol-agnostic [SASL] credential descriptors.
+//! The [SASL] vocabulary: the tag naming a mechanism, and the closed
+//! set pairing a tag with the credentials of one.
 //!
-//! Each variant carries only the bits the mechanism transmits on the
-//! wire; protocol-specific framing (`AUTHENTICATE LOGIN`, the SMTP
-//! `AUTH` grammar, ...) lives in the consumer crate (io-imap, io-smtp,
-//! io-pop3, ...). [`SaslMechanism`] and [`Sasl`] are two views of one
-//! closed set, the tag and the tag plus its credentials, so they live
-//! together.
+//! The credential structs themselves live with the mechanisms that
+//! transmit them, one per mechanism module, since what a mechanism
+//! needs is part of that mechanism. This module only gathers them into
+//! the one set a consumer matches on. Protocol framing (`AUTHENTICATE
+//! LOGIN`, the SMTP `AUTH` grammar, ...) lives in the consumer crate
+//! (io-imap, io-smtp, io-pop3, ...).
 //!
 //! [SASL]: https://www.rfc-editor.org/rfc/rfc4422
 
-use alloc::{string::String, vec::Vec};
+use crate::{
+    login::SaslLogin, rfc4505::anonymous::SaslAnonymous, rfc4616::plain::SaslPlain,
+    rfc7628::oauthbearer::SaslOauthbearer, xoauth2::SaslXoauth2,
+};
 
-use secrecy::SecretString;
+#[cfg(feature = "scram")]
+use crate::rfc7677::scram_sha_256::SaslScramSha256;
 
 /// Tag identifying a SASL mechanism without its credentials.
+///
+/// The tag stays complete whatever the crate was built with, since a
+/// consumer reading a server capability list has to recognise the name
+/// of a mechanism it cannot run in order to report it as unsupported.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SaslMechanism {
     /// The ANONYMOUS mechanism (RFC 4505).
@@ -46,6 +55,11 @@ impl SaslMechanism {
 }
 
 /// SASL credentials for a single authentication mechanism.
+///
+/// A mechanism the build left out has no variant here, since its
+/// credentials describe an exchange this build cannot run: a consumer
+/// mapping a configuration onto the enum reports the missing feature
+/// where the user can act on it.
 #[derive(Clone, Debug)]
 pub enum Sasl {
     /// ANONYMOUS credentials.
@@ -59,6 +73,8 @@ pub enum Sasl {
     /// XOAUTH2 credentials.
     Xoauth2(SaslXoauth2),
     /// SCRAM-SHA-256 credentials.
+    #[cfg(feature = "scram")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
     ScramSha256(SaslScramSha256),
 }
 
@@ -92,112 +108,11 @@ impl From<SaslXoauth2> for Sasl {
     }
 }
 
+#[cfg(feature = "scram")]
 impl From<SaslScramSha256> for Sasl {
     fn from(sasl: SaslScramSha256) -> Self {
         Self::ScramSha256(sasl)
     }
-}
-
-/// ANONYMOUS mechanism credentials ([RFC 4505]).
-///
-/// Carries an optional trace token (typically an email-like string the
-/// server can log); no secrets.
-///
-/// [RFC 4505]: https://www.rfc-editor.org/rfc/rfc4505
-#[derive(Clone, Debug)]
-pub struct SaslAnonymous {
-    /// The optional trace token logged by the server.
-    pub message: Option<String>,
-}
-
-/// LOGIN mechanism credentials ([draft-murchison-sasl-login]).
-///
-/// Legacy two-prompt cleartext scheme; also used as the credential
-/// shape for protocol-level `LOGIN` commands (e.g. IMAP `LOGIN`,
-/// [RFC 3501 section 6.2.3]).
-///
-/// [draft-murchison-sasl-login]: https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00
-/// [RFC 3501 section 6.2.3]: https://www.rfc-editor.org/rfc/rfc3501#section-6.2.3
-#[derive(Clone, Debug)]
-pub struct SaslLogin {
-    /// The login username.
-    pub username: String,
-    /// The login password.
-    pub password: SecretString,
-}
-
-/// PLAIN mechanism credentials ([RFC 4616]).
-///
-/// Single-message scheme sending `authzid NUL authcid NUL password`;
-/// `authzid` is optional.
-///
-/// [RFC 4616]: https://www.rfc-editor.org/rfc/rfc4616
-#[derive(Clone, Debug)]
-pub struct SaslPlain {
-    /// The optional authorization identity.
-    pub authzid: Option<String>,
-    /// The authentication identity.
-    pub authcid: String,
-    /// The password.
-    pub passwd: SecretString,
-}
-
-/// OAUTHBEARER mechanism credentials ([RFC 7628]).
-///
-/// `host` and `port` are sent verbatim in the GS2 header and should
-/// match the server being contacted.
-///
-/// [RFC 7628]: https://www.rfc-editor.org/rfc/rfc7628
-#[derive(Clone, Debug)]
-pub struct SaslOauthbearer {
-    /// The account username.
-    pub username: String,
-    /// The server host, sent verbatim in the GS2 header.
-    pub host: String,
-    /// The server port, sent verbatim in the GS2 header.
-    pub port: u16,
-    /// The OAuth 2.0 access token.
-    pub token: SecretString,
-}
-
-/// XOAUTH2 mechanism credentials ([Google XOAUTH2]).
-///
-/// Pre-standard OAuth 2.0 SASL scheme; same shape as OAUTHBEARER minus
-/// the GS2 host/port fields. Not IETF-standardised.
-///
-/// [Google XOAUTH2]: https://developers.google.com/gmail/imap/xoauth2-protocol
-#[derive(Clone, Debug)]
-pub struct SaslXoauth2 {
-    /// The account username.
-    pub username: String,
-    /// The OAuth 2.0 access token.
-    pub token: SecretString,
-}
-
-/// SCRAM-SHA-256 mechanism credentials ([RFC 7677], [RFC 5802]).
-///
-/// Salted password-based scheme; the password never leaves the client.
-///
-/// [RFC 7677]: https://www.rfc-editor.org/rfc/rfc7677
-/// [RFC 5802]: https://www.rfc-editor.org/rfc/rfc5802
-#[derive(Clone, Debug)]
-pub struct SaslScramSha256 {
-    /// The account username.
-    pub username: String,
-    /// The password, never sent on the wire.
-    pub password: SecretString,
-    /// The client nonce, printable ASCII without commas.
-    ///
-    /// [RFC 5802 section 5.1] recommends at least 18 bytes of
-    /// cryptographic randomness. It sits with the credentials rather
-    /// than being generated by the mechanism because an I/O-free
-    /// coroutine cannot generate randomness: the entropy decision
-    /// belongs to whoever builds the credentials, and carrying it here
-    /// means a protocol crate holding a [`Sasl`] always has everything
-    /// the exchange needs.
-    ///
-    /// [RFC 5802 section 5.1]: https://www.rfc-editor.org/rfc/rfc5802#section-5.1
-    pub nonce: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -206,7 +121,13 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::mechanism::*;
+    use crate::{
+        login::SaslLogin, mechanism::*, rfc4505::anonymous::SaslAnonymous,
+        rfc4616::plain::SaslPlain, rfc7628::oauthbearer::SaslOauthbearer, xoauth2::SaslXoauth2,
+    };
+
+    #[cfg(feature = "scram")]
+    use crate::rfc7677::scram_sha_256::SaslScramSha256;
 
     #[test]
     fn every_mechanism_spells_the_name_it_is_registered_under() {
@@ -247,8 +168,8 @@ mod tests {
     /// the mistake six near-identical arms actually make is not a
     /// missing one, it is two of them landing on the same place, which
     /// only a walk over all of them can see.
-    fn vocabulary() -> [(SaslMechanism, Sasl, &'static str); 6] {
-        [
+    fn vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
+        let mut vocabulary = vec![
             (
                 SaslMechanism::Anonymous,
                 SaslAnonymous { message: None }.into(),
@@ -293,17 +214,29 @@ mod tests {
                 .into(),
                 "XOAUTH2",
             ),
-            (
-                SaslMechanism::ScramSha256,
-                SaslScramSha256 {
-                    username: "alice".into(),
-                    password: SecretString::from("pencil"),
-                    nonce: vec![],
-                }
-                .into(),
-                "SCRAM-SHA-256",
-            ),
-        ]
+        ];
+
+        vocabulary.extend(scram_vocabulary());
+        vocabulary
+    }
+
+    #[cfg(feature = "scram")]
+    fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
+        vec![(
+            SaslMechanism::ScramSha256,
+            SaslScramSha256 {
+                username: "alice".into(),
+                password: SecretString::from("pencil"),
+                nonce: vec![],
+            }
+            .into(),
+            "SCRAM-SHA-256",
+        )]
+    }
+
+    #[cfg(not(feature = "scram"))]
+    fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl, &'static str)> {
+        Vec::new()
     }
 
     /// The tag of the variant a [`Sasl`] settled in.
@@ -319,6 +252,7 @@ mod tests {
             Sasl::Plain(_) => SaslMechanism::Plain,
             Sasl::Oauthbearer(_) => SaslMechanism::OAuthBearer,
             Sasl::Xoauth2(_) => SaslMechanism::XOAuth2,
+            #[cfg(feature = "scram")]
             Sasl::ScramSha256(_) => SaslMechanism::ScramSha256,
         }
     }

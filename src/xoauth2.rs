@@ -17,8 +17,7 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
-//!     mechanism::SaslXoauth2,
-//!     xoauth2::SaslAuthXoauth2,
+//!     xoauth2::{SaslAuthXoauth2, SaslXoauth2},
 //! };
 //! use secrecy::SecretString;
 //!
@@ -59,13 +58,10 @@ use alloc::{
 };
 
 use log::{debug, trace};
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
-use crate::{
-    coroutine::*,
-    mechanism::{SaslMechanism, SaslXoauth2},
-};
+use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the XOAUTH2 exchange.
 #[derive(Clone, Debug, Error)]
@@ -78,6 +74,20 @@ pub enum SaslAuthXoauth2Error {
     /// or out of order.
     #[error("SASL XOAUTH2 failed: unexpected challenge")]
     UnexpectedChallenge,
+}
+
+/// XOAUTH2 mechanism credentials ([Google XOAUTH2]).
+///
+/// Pre-standard OAuth 2.0 SASL scheme; same shape as OAUTHBEARER minus
+/// the GS2 host/port fields. Not IETF-standardised.
+///
+/// [Google XOAUTH2]: https://developers.google.com/gmail/imap/xoauth2-protocol
+#[derive(Clone, Debug)]
+pub struct SaslXoauth2 {
+    /// The account username.
+    pub username: String,
+    /// The OAuth 2.0 access token.
+    pub token: SecretString,
 }
 
 /// I/O-free SASL XOAUTH2 mechanism.
@@ -159,7 +169,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, mechanism::SaslXoauth2, xoauth2::*};
+    use crate::{coroutine::*, xoauth2::*};
 
     #[test]
     fn start_responds_with_the_documented_payload() {

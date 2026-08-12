@@ -43,12 +43,17 @@
 //! exchange step by step, which is the shortest description of what a
 //! protocol crate has to do with it.
 //!
+//! Each module holds one mechanism whole: its coroutine, its failure
+//! type, and the credential struct describing what it needs, since what
+//! a mechanism transmits is part of that mechanism rather than of a
+//! catalogue somewhere else.
+//!
 //! [`coroutine`] holds the contract spanning them, and [`mechanism`]
-//! the vocabulary: [`mechanism::SaslMechanism`] tags a mechanism,
-//! [`mechanism::Sasl`] carries the credentials of one, and the six
-//! credential structs describe what each mechanism needs. Tag and
-//! credentials stay together because they are two views of one closed
-//! set.
+//! the vocabulary tying them together: [`mechanism::SaslMechanism`]
+//! tags a mechanism without its credentials, which is what a consumer
+//! matches a server capability list against, and [`mechanism::Sasl`]
+//! pairs a tag with the credentials of one, gathering the six structs
+//! into the closed set a protocol crate dispatches on.
 //!
 //! ## The coroutine contract
 //!

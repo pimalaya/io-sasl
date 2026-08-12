@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the SASL vocabulary, moved from `pimalaya-stream`.
 
-  `SaslMechanism` tags a mechanism and knows its wire name, `Sasl` carries the credentials of one, and `SaslAnonymous`, `SaslLogin`, `SaslPlain`, `SaslOauthbearer`, `SaslXoauth2` and `SaslScramSha256` describe what each mechanism needs.
+  `SaslMechanism` tags a mechanism and knows its wire name, and `Sasl` pairs a tag with the credentials of one. The credential structs `SaslAnonymous`, `SaslLogin`, `SaslPlain`, `SaslOauthbearer`, `SaslXoauth2` and `SaslScramSha256` live in the module of the mechanism that transmits them, next to its coroutine.
 
 - Added the ANONYMOUS mechanism following RFC 4505, sending an optional trace token.
 

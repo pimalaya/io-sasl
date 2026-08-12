@@ -17,17 +17,17 @@
 
 use io_sasl::{
     coroutine::*,
-    login::SaslAuthLogin,
-    mechanism::{SaslAnonymous, SaslLogin, SaslMechanism, SaslOauthbearer, SaslPlain, SaslXoauth2},
-    rfc4505::anonymous::SaslAuthAnonymous,
-    rfc4616::plain::SaslAuthPlain,
-    rfc7628::oauthbearer::SaslAuthOauthbearer,
-    xoauth2::SaslAuthXoauth2,
+    login::{SaslAuthLogin, SaslLogin},
+    mechanism::SaslMechanism,
+    rfc4505::anonymous::{SaslAnonymous, SaslAuthAnonymous},
+    rfc4616::plain::{SaslAuthPlain, SaslPlain},
+    rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslOauthbearer},
+    xoauth2::{SaslAuthXoauth2, SaslXoauth2},
 };
 use secrecy::SecretString;
 
 #[cfg(feature = "scram")]
-use io_sasl::{mechanism::SaslScramSha256, rfc7677::scram_sha_256::SaslAuthScramSha256};
+use io_sasl::rfc7677::scram_sha_256::{SaslAuthScramSha256, SaslScramSha256};
 
 #[test]
 fn every_coroutine_answers_with_the_tag_of_the_module_it_lives_in() {
