@@ -11,20 +11,21 @@
 //! here instead of in a protocol crate.
 //!
 //! Three of those properties are load-bearing. Every mechanism answers
-//! the first resume with a response, which is what lets a protocol
-//! decide whether to inline it as an initial response. Every mechanism
+//! the first resume the way its specification speaks, which is what a
+//! protocol crate needs before it writes anything. Every mechanism
 //! completes on `Done`, and a SCRAM profile completes `Err` on it
 //! unless the server signature was verified, which is what stops mutual
 //! authentication from being skipped by omission. And no mechanism ever
 //! answers stray input with a success.
 //!
-//! Two of the properties are stated per class rather than universally,
-//! because a mechanism relaying an outside security context genuinely
-//! differs: it cannot refuse stray input, having no way to know the
-//! round count, and it cannot refuse an early end, mutual
-//! authentication living inside tokens it does not read. Each is a
-//! predicate with an exhaustive match, so a mechanism added later has
-//! to answer both questions before this file compiles.
+//! Three are stated per class rather than universally, because the
+//! classes genuinely differ. A server-first mechanism has no initial
+//! response to inline. A mechanism relaying an outside security context
+//! cannot refuse stray input, having no way to know the round count,
+//! and cannot refuse an early end, mutual authentication living inside
+//! tokens it does not read. Each is a predicate with an exhaustive
+//! match, so a mechanism added later has to answer all three questions
+//! before this file compiles.
 
 use core::fmt::Display;
 
@@ -36,16 +37,21 @@ use io_sasl::{
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
     rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
+    rfc5801::{
+        SaslGs2ChannelBinding, SaslGs2ChannelBindingKind,
+        gs2_krb5::{SaslGs2Krb5, SaslGs2Krb5Creds},
+    },
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
     xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
 use secrecy::SecretString;
 
+#[cfg(feature = "cram-md5")]
+use io_sasl::rfc2195::cram_md5::{SaslCramMd5, SaslCramMd5Creds};
+
 #[cfg(feature = "scram")]
 use io_sasl::{
-    rfc5802::{
-        SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds, SaslScramError,
-    },
+    rfc5802::{SaslScramCreds, SaslScramError},
     rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
 };
@@ -54,17 +60,26 @@ use io_sasl::{
 use io_sasl::rfc5802::scram_sha_1::SaslScramSha1;
 
 #[test]
-fn every_mechanism_answers_start_with_an_initial_response() {
+fn every_mechanism_answers_start_the_way_its_specification_speaks() {
     for mut mechanism in mechanisms() {
-        let name = mechanism.tag().as_str();
+        let tag = mechanism.tag();
+        let name = tag.as_str();
 
-        // NOTE: none of the six is server-first, and a protocol crate
-        // relies on that when it decides about SASL-IR: a mechanism
-        // answering WantsRead here would need the command sent
-        // without an initial response.
+        // NOTE: this is the decision a protocol crate takes before it
+        // writes anything, since an initial response is what it may
+        // inline in its authentication command, and a server-first
+        // mechanism has none to inline. Getting it backwards sends a
+        // command the server cannot answer.
         match mechanism.step(SaslArg::None) {
-            SaslCoroutineState::Yielded(SaslYield::WantsWrite(_)) => {}
-            state => panic!("{name} has no initial response: {state:?}"),
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(_)) => assert!(
+                has_initial_response(tag),
+                "{name} answered with a payload the protocol has nowhere to put"
+            ),
+            SaslCoroutineState::Yielded(SaslYield::WantsRead) => assert!(
+                !has_initial_response(tag),
+                "{name} asked for a challenge instead of opening the exchange"
+            ),
+            state => panic!("{name} did not answer the first resume: {state:?}"),
         }
     }
 }
@@ -84,6 +99,7 @@ fn every_exchange_yields_the_payloads_its_specification_defines() {
                 ) => {
                     assert_eq!(payload, bytes, "{name} sent an unexpected payload");
                 }
+                (SaslCoroutineState::Yielded(SaslYield::WantsRead), Expect::AwaitsInput) => {}
                 (SaslCoroutineState::Complete(Ok(())), Expect::CompletesOk) => {}
                 _ => panic!("{name} was expected to {expected:?}, got {step:?}"),
             }
@@ -128,7 +144,7 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
     for sent in 0..3 {
         let mut auth = SaslScramSha256::new(scram_creds(
             CLIENT_NONCE,
-            SaslScramChannelBinding::Unsupported,
+            SaslGs2ChannelBinding::Unsupported,
         ));
 
         let prefix = [SaslArg::None, SaslArg::Input(SERVER_FIRST)];
@@ -216,6 +232,9 @@ type Exchange = (Box<dyn SaslExchange>, Vec<(SaslArg<'static>, Expect)>);
 enum Expect {
     /// Yield exactly these bytes as the next response.
     Responds(&'static [u8]),
+    /// Ask for input rather than send anything, which only a
+    /// server-first mechanism does.
+    AwaitsInput,
     /// Complete the exchange successfully.
     CompletesOk,
 }
@@ -262,16 +281,46 @@ where
 fn authenticates_the_server(mechanism: SaslMechanism) -> bool {
     match mechanism {
         SaslMechanism::Anonymous => false,
+        SaslMechanism::CramMd5 => false,
         SaslMechanism::External => false,
         // NOTE: GSSAPI does authenticate the server, mutually even, but
         // inside tokens this crate relays without reading, so the
         // guarantee belongs to the caller's security context and the
         // relay has nothing to refuse an early end for.
         SaslMechanism::Gssapi => false,
+        SaslMechanism::Gs2Krb5 => false,
+        SaslMechanism::Gs2Krb5Plus => false,
         SaslMechanism::Login => false,
         SaslMechanism::Plain => false,
         SaslMechanism::OAuthBearer => false,
         SaslMechanism::XOAuth2 => false,
+        SaslMechanism::ScramSha1 => true,
+        SaslMechanism::ScramSha1Plus => true,
+        SaslMechanism::ScramSha256 => true,
+        SaslMechanism::ScramSha256Plus => true,
+        SaslMechanism::ScramSha512 => true,
+        SaslMechanism::ScramSha512Plus => true,
+    }
+}
+
+/// Whether the mechanism opens the exchange, which decides what the
+/// protocol crate may inline in its authentication command.
+///
+/// The match is exhaustive on purpose: a mechanism added to the
+/// vocabulary has to answer this question before the properties above
+/// can run.
+fn has_initial_response(mechanism: SaslMechanism) -> bool {
+    match mechanism {
+        SaslMechanism::Anonymous => true,
+        SaslMechanism::CramMd5 => false,
+        SaslMechanism::External => true,
+        SaslMechanism::Gssapi => true,
+        SaslMechanism::Gs2Krb5 => true,
+        SaslMechanism::Gs2Krb5Plus => true,
+        SaslMechanism::Login => true,
+        SaslMechanism::Plain => true,
+        SaslMechanism::OAuthBearer => true,
+        SaslMechanism::XOAuth2 => true,
         SaslMechanism::ScramSha1 => true,
         SaslMechanism::ScramSha1Plus => true,
         SaslMechanism::ScramSha256 => true,
@@ -291,8 +340,11 @@ fn authenticates_the_server(mechanism: SaslMechanism) -> bool {
 fn refuses_stray_input(mechanism: SaslMechanism) -> bool {
     match mechanism {
         SaslMechanism::Anonymous => true,
+        SaslMechanism::CramMd5 => true,
         SaslMechanism::External => true,
         SaslMechanism::Gssapi => false,
+        SaslMechanism::Gs2Krb5 => false,
+        SaslMechanism::Gs2Krb5Plus => false,
         SaslMechanism::Login => true,
         SaslMechanism::Plain => true,
         SaslMechanism::OAuthBearer => true,
@@ -333,8 +385,18 @@ fn exchanges() -> Vec<Exchange> {
         username: "someuser@example.com".into(),
         token: SecretString::from("vF9dft4qmT"),
     };
+    let gs2_krb5 = SaslGs2Krb5Creds {
+        token: b"first token".to_vec(),
+        authzid: None,
+        channel_binding: SaslGs2ChannelBinding::Unsupported,
+    };
     let gssapi = SaslGssapiCreds {
         token: b"first token".to_vec(),
+    };
+    #[cfg(feature = "cram-md5")]
+    let cram_md5 = SaslCramMd5Creds {
+        username: "tim".into(),
+        secret: SecretString::from("tanstaaftanstaaf"),
     };
     let external = SaslExternalCreds {
         authzid: Some("alice@localhost".into()),
@@ -345,6 +407,18 @@ fn exchanges() -> Vec<Exchange> {
             Box::new(SaslAnonymous::new(anonymous)),
             vec![
                 (SaslArg::None, Expect::Responds(b"alice@localhost")),
+                (SaslArg::Done, Expect::CompletesOk),
+            ],
+        ),
+        #[cfg(feature = "cram-md5")]
+        (
+            Box::new(SaslCramMd5::new(cram_md5)),
+            vec![
+                (SaslArg::None, Expect::AwaitsInput),
+                (
+                    SaslArg::Input(b"<1896.697170952@postoffice.reston.mci.net>"),
+                    Expect::Responds(b"tim b913a602c7eda7a495b4e6e7334d3890"),
+                ),
                 (SaslArg::Done, Expect::CompletesOk),
             ],
         ),
@@ -359,6 +433,17 @@ fn exchanges() -> Vec<Exchange> {
             Box::new(SaslGssapi::new(gssapi)),
             vec![
                 (SaslArg::None, Expect::Responds(b"first token")),
+                (
+                    SaslArg::Input(b"a token from the caller's context"),
+                    Expect::Responds(b"a token from the caller's context"),
+                ),
+                (SaslArg::Done, Expect::CompletesOk),
+            ],
+        ),
+        (
+            Box::new(SaslGs2Krb5::new(gs2_krb5)),
+            vec![
+                (SaslArg::None, Expect::Responds(b"n,,first token")),
                 (
                     SaslArg::Input(b"a token from the caller's context"),
                     Expect::Responds(b"a token from the caller's context"),
@@ -458,8 +543,8 @@ const SHA1_SERVER_FINAL: &[u8] = b"v=rmF9pqV8S7suAoZWja4dJRkFsKQ=";
 
 #[cfg(feature = "scram")]
 fn scram_exchange() -> Vec<Exchange> {
-    let bound = SaslScramChannelBinding::Bound {
-        kind: SaslScramChannelBindingKind::TlsExporter,
+    let bound = SaslGs2ChannelBinding::Bound {
+        kind: SaslGs2ChannelBindingKind::TlsExporter,
         data: (0..8).collect(),
     };
 
@@ -467,14 +552,14 @@ fn scram_exchange() -> Vec<Exchange> {
         (
             Box::new(SaslScramSha256::new(scram_creds(
                 CLIENT_NONCE,
-                SaslScramChannelBinding::Unsupported,
+                SaslGs2ChannelBinding::Unsupported,
             ))),
             scram_script(CLIENT_FIRST, SERVER_FIRST, CLIENT_FINAL, SERVER_FINAL),
         ),
         (
             Box::new(SaslScramSha512::new(scram_creds(
                 CLIENT_NONCE,
-                SaslScramChannelBinding::Unsupported,
+                SaslGs2ChannelBinding::Unsupported,
             ))),
             scram_script(
                 CLIENT_FIRST,
@@ -512,7 +597,7 @@ fn scram_sha_1_exchange() -> Vec<Exchange> {
     vec![(
         Box::new(SaslScramSha1::new(scram_creds(
             SHA1_CLIENT_NONCE,
-            SaslScramChannelBinding::Unsupported,
+            SaslGs2ChannelBinding::Unsupported,
         ))),
         scram_script(
             SHA1_CLIENT_FIRST,
@@ -546,7 +631,7 @@ fn scram_script(
 }
 
 #[cfg(feature = "scram")]
-fn scram_creds(nonce: &[u8], channel_binding: SaslScramChannelBinding) -> SaslScramCreds {
+fn scram_creds(nonce: &[u8], channel_binding: SaslGs2ChannelBinding) -> SaslScramCreds {
     SaslScramCreds {
         username: "user".into(),
         password: SecretString::from("pencil"),

@@ -52,9 +52,19 @@ use thiserror::Error;
 
 use crate::{coroutine::*, mechanism::SaslMechanism};
 
+#[cfg(feature = "saslprep")]
+use crate::rfc4013::{SaslPrepError, saslprep};
+
 /// Failure causes of the PLAIN exchange.
 #[derive(Clone, Debug, Error)]
 pub enum SaslPlainError {
+    /// A credential carried a code point SASLprep prohibits, so it
+    /// cannot be prepared and the server would read something other
+    /// than what was typed.
+    #[cfg(feature = "saslprep")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "saslprep")))]
+    #[error("SASL PLAIN failed: {0}")]
+    Preparation(#[from] SaslPrepError),
     /// The mechanism was resumed with a challenge it does not expect,
     /// or out of order.
     #[error("SASL PLAIN failed: unexpected challenge after the credentials")]
@@ -112,12 +122,32 @@ impl SaslCoroutine for SaslPlain {
         match self.state {
             State::SendCreds => {
                 let authzid = self.creds.authzid.as_deref().unwrap_or_default();
+                let authcid = self.creds.authcid.as_str();
                 let passwd = self.creds.passwd.expose_secret();
+
+                // NOTE: RFC 4616 section 2 asks the client to prepare
+                // all three, since the server compares against what it
+                // prepared when the password was set.
+                #[cfg(feature = "saslprep")]
+                let (authzid, authcid, passwd) = {
+                    let prepared = [authzid, authcid, passwd].map(saslprep);
+
+                    let [authzid, authcid, passwd] = match prepared {
+                        [Ok(authzid), Ok(authcid), Ok(passwd)] => [authzid, authcid, passwd],
+                        prepared => {
+                            let err = prepared.into_iter().find_map(Result::err);
+                            let err = err.expect("one of the three failed to prepare");
+                            return SaslCoroutineState::Complete(Err(err.into()));
+                        }
+                    };
+
+                    (authzid, authcid, passwd)
+                };
 
                 let mut payload = Vec::new();
                 payload.extend_from_slice(authzid.as_bytes());
                 payload.push(0);
-                payload.extend_from_slice(self.creds.authcid.as_bytes());
+                payload.extend_from_slice(authcid.as_bytes());
                 payload.push(0);
                 payload.extend_from_slice(passwd.as_bytes());
 
@@ -173,6 +203,38 @@ mod tests {
 
         assert_eq!(payload, b"\0alice\0pencil");
         assert_eq!(payload.split(|b| *b == 0).count(), 3);
+    }
+
+    #[cfg(feature = "saslprep")]
+    #[test]
+    fn the_credentials_are_prepared_before_they_are_sent() {
+        // NOTE: RFC 4616 section 2 asks for this, and it is what makes a
+        // password the user typed with a non-breaking space match the
+        // one the server prepared when it was set.
+        let creds = SaslPlainCreds {
+            authzid: None,
+            authcid: "ali\u{00ad}ce".to_string(),
+            passwd: SecretString::from("pen\u{00a0}cil".to_string()),
+        };
+        let mut auth = SaslPlain::new(creds);
+
+        assert_eq!(respond(&mut auth, SaslArg::None), b"\0alice\0pen cil");
+    }
+
+    #[cfg(feature = "saslprep")]
+    #[test]
+    fn a_credential_that_cannot_be_prepared_completes_err() {
+        let creds = SaslPlainCreds {
+            authzid: None,
+            authcid: "alice".to_string(),
+            passwd: SecretString::from("pen\u{0007}cil".to_string()),
+        };
+        let mut auth = SaslPlain::new(creds);
+
+        assert!(matches!(
+            auth.resume(SaslArg::None),
+            SaslCoroutineState::Complete(Err(SaslPlainError::Preparation(_))),
+        ));
     }
 
     #[test]

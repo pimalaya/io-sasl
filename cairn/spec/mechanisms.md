@@ -9,7 +9,7 @@ status: current
 Client-side mechanisms, each computing exactly what its specification puts on the wire, plus the vocabulary describing their credentials. The source tree follows the specifications: one module per RFC where one exists, and a root module for the mechanisms that never got one.
 
 ### Requirement: Coverage
-The crate SHALL carry ANONYMOUS, EXTERNAL, GSSAPI, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each of the latter under its plain and its `-PLUS` name. Mechanisms the IANA registry lists but a live specification discourages SHALL NOT be added, DIGEST-MD5 being Historic by RFC 6331.
+The crate SHALL carry ANONYMOUS, CRAM-MD5, EXTERNAL, GSSAPI, GS2-KRB5, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, the Kerberos and SCRAM ones under their plain and their `-PLUS` names where they have both. Mechanisms the IANA registry lists but a live specification discourages SHALL NOT be added, DIGEST-MD5 being Historic by RFC 6331. Proprietary schemes SHALL NOT be added either, NTLM being the one servers still offer.
 
 ### Requirement: Computed and relayed mechanisms
 A mechanism whose payloads follow from its credentials SHALL compute them here. A mechanism whose payloads come from a security context this crate cannot host SHALL be carried as a relay instead of being left out: the crate holds the exchange, the caller holds the context. A relay SHALL claim nothing it cannot check, and its module SHALL name what it leaves to the caller.
@@ -35,7 +35,15 @@ Each mechanism SHALL be built from the credential struct it shares with its `Sas
 ### Requirement: GSSAPI
 `SaslGssapi` (RFC 4752) SHALL answer `None` with the first GSS-API token, which the credentials carry, and every `Input` with that input verbatim, then complete `Ok` on `Done`. Resumed out of order it SHALL complete `Err` with `OutOfOrder`.
 
-It SHALL NOT read, verify or count the tokens: the caller feeds it what its own security context produced from each peer message, and only that context knows when the handshake is over. The security layer negotiation of RFC 4752 section 3.1 SHALL stay with the caller until this crate carries it as pure functions.
+It SHALL NOT read, verify or count the tokens: the caller feeds it what its own security context produced from each peer message, and only that context knows when the handshake is over.
+
+The security layer negotiation of RFC 4752 section 3.1 SHALL be carried as pure functions rather than as coroutine steps, since its four octets travel wrapped and only the caller can move them through its context. `SaslGssapiSecurityLayerOffer::parse` SHALL read the layer bitmask and the maximum message size, failing on a truncated offer or one carrying no defined layer, and `SaslGssapiSecurityLayerChoice::to_bytes` SHALL assemble the answer, truncating a size larger than the three octets the format gives it.
+
+### Requirement: CRAM-MD5
+`SaslCramMd5` (RFC 2195) SHALL answer `None` with `WantsRead`, being server-first, then answer the challenge with the username, a space, and the HMAC-MD5 of that challenge keyed by the shared secret in lowercase hexadecimal, and complete `Ok` on `Done`. It SHALL live behind the `cram-md5` cargo feature, being a legacy mechanism whose server stores a plaintext-equivalent secret.
+
+### Requirement: GS2-KRB5
+`SaslGs2Krb5` (RFC 5801) SHALL answer `None` with the GS2 header followed by the first token its credentials carry, relay every later `Input` verbatim, and complete `Ok` on `Done`. The header SHALL carry the channel binding flag and the escaped authorization identity, and the binding SHALL pick between `GS2-KRB5` and `GS2-KRB5-PLUS`. What it relays it SHALL NOT read, verify or count, as for GSSAPI.
 
 ### Requirement: PLAIN
 `SaslPlain` (RFC 4616) SHALL answer `None` with `authzid NUL authcid NUL passwd`, leaving the authorization identity empty when absent, and complete `Ok` on `Done`.
@@ -48,6 +56,9 @@ It SHALL NOT read, verify or count the tokens: the caller feeds it what its own 
 
 ### Requirement: XOAUTH2
 `SaslXoauth2` (Google) SHALL answer `None` with the username and the bearer token, separated and terminated by `%x01`. A JSON error challenge SHALL be answered with the empty response Google documents, after which the mechanism SHALL complete `Err` on `Done`, carrying the JSON the server sent.
+
+### Requirement: Credential preparation
+PLAIN and SCRAM SHALL prepare their username and password with SASLprep (RFC 4013) before sending or deriving anything, as RFC 4616 and RFC 5802 ask, and SHALL complete `Err` when a credential carries a code point the profile prohibits. The preparation SHALL apply every rule that changes the bytes going out: the non-ASCII space mapping, the removals, NFKC normalization and the prohibited output tables. The bidirectional rule and the unassigned code points of RFC 3454 MAY be left out, both rejecting strings rather than changing them.
 
 ### Requirement: Credential handling
 Passwords and tokens SHALL stay inside secret wrappers and SHALL NOT appear in logs or in debug output.

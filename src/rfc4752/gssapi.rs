@@ -24,12 +24,24 @@
 //!
 //! What this mechanism does not do follows from the same cut. It cannot
 //! tell when the context is established, since only the GSS layer
-//! knows; it does not verify anything, mutual authentication living
-//! inside the tokens; and it does not assemble the security layer
-//! negotiation of [RFC 4752 section 3.1], whose four octets and
-//! authorization identity the caller wraps and unwraps itself. A
-//! consumer wanting full GSSAPI writes that on top; what it does not
-//! have to write again is the exchange around it.
+//! knows, and it verifies nothing, mutual authentication living inside
+//! the tokens.
+//!
+//! # The security layer negotiation
+//!
+//! What it does carry is the one message of the exchange that is SASL
+//! rather than GSS: the four octets of [RFC 4752 section 3.1], a
+//! bitmask of security layers and a maximum message size, with an
+//! authorization identity after them.
+//!
+//! Those octets travel wrapped, so the relay never sees them.
+//! [`SaslGssapiSecurityLayerOffer::parse`] reads the plaintext the
+//! caller unwrapped, and [`SaslGssapiSecurityLayerChoice::to_bytes`]
+//! assembles the plaintext it wraps in return; both are plain functions
+//! rather than steps of the coroutine, since only the caller can move
+//! bytes through its own context. Picking a layer other than
+//! [`SaslGssapiSecurityLayer::None`] leaves every later message on that
+//! connection wrapped, which is the caller's business too.
 //!
 //! # Example
 //!
@@ -82,7 +94,7 @@
 //! [RFC 4752]: https://www.rfc-editor.org/rfc/rfc4752
 //! [RFC 4752 section 3.1]: https://www.rfc-editor.org/rfc/rfc4752#section-3.1
 
-use alloc::{borrow::ToOwned, vec::Vec};
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
 
 use log::debug;
 use thiserror::Error;
@@ -91,14 +103,144 @@ use crate::{coroutine::*, mechanism::SaslMechanism};
 
 /// Failure causes of the GSSAPI exchange.
 ///
-/// One variant, and it is about ordering rather than about content: a
-/// relay cannot judge a token it is not equipped to read.
+/// Ordering and shape, never content: a relay cannot judge a token it
+/// is not equipped to read.
 #[derive(Clone, Debug, Error)]
 pub enum SaslGssapiError {
     /// The mechanism was resumed out of order: input before the initial
     /// token went out, or a fresh start in the middle of the exchange.
     #[error("SASL GSSAPI failed: resumed out of order")]
     OutOfOrder,
+    /// The security layer offer was shorter than the four octets
+    /// [RFC 4752 section 3.1] gives it.
+    ///
+    /// [RFC 4752 section 3.1]: https://www.rfc-editor.org/rfc/rfc4752#section-3.1
+    #[error("SASL GSSAPI failed: truncated security layer offer")]
+    TruncatedSecurityLayerOffer,
+    /// The server offered no security layer this client could pick,
+    /// its bitmask carrying none of the three defined bits.
+    #[error("SASL GSSAPI failed: security layer offer carries no known layer")]
+    UnknownSecurityLayerOffer,
+}
+
+/// A security layer the server offers over the authenticated
+/// connection ([RFC 4752 section 3.1]).
+///
+/// [RFC 4752 section 3.1]: https://www.rfc-editor.org/rfc/rfc4752#section-3.1
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SaslGssapiSecurityLayer {
+    /// No layer: the connection continues in clear once authenticated,
+    /// which is the usual choice under TLS.
+    None,
+    /// Every later message is wrapped with integrity protection.
+    Integrity,
+    /// Every later message is wrapped with confidentiality protection.
+    Confidentiality,
+}
+
+impl SaslGssapiSecurityLayer {
+    /// The bit this layer occupies in the bitmask octet.
+    pub fn bit(&self) -> u8 {
+        match self {
+            Self::None => 1,
+            Self::Integrity => 2,
+            Self::Confidentiality => 4,
+        }
+    }
+}
+
+/// What the server offers once the context is established: the layers
+/// it supports, and the largest message it will accept.
+///
+/// The offer arrives wrapped, so the caller unwraps it with its own
+/// security context and parses the plaintext here.
+#[derive(Clone, Debug)]
+pub struct SaslGssapiSecurityLayerOffer {
+    /// The layers the server said it supports.
+    pub layers: Vec<SaslGssapiSecurityLayer>,
+    /// The largest message the server is willing to receive, zero when
+    /// it offers no layer needing one.
+    pub max_message_size: u32,
+}
+
+impl SaslGssapiSecurityLayerOffer {
+    /// Parses the four octets of [RFC 4752 section 3.1]: a bitmask of
+    /// layers, then the maximum message size in network byte order.
+    ///
+    /// [RFC 4752 section 3.1]: https://www.rfc-editor.org/rfc/rfc4752#section-3.1
+    pub fn parse(unwrapped: &[u8]) -> Result<Self, SaslGssapiError> {
+        let [mask, size @ ..] = unwrapped else {
+            return Err(SaslGssapiError::TruncatedSecurityLayerOffer);
+        };
+
+        let [high, middle, low, ..] = size else {
+            return Err(SaslGssapiError::TruncatedSecurityLayerOffer);
+        };
+
+        let offered = [
+            SaslGssapiSecurityLayer::None,
+            SaslGssapiSecurityLayer::Integrity,
+            SaslGssapiSecurityLayer::Confidentiality,
+        ];
+
+        let layers: Vec<_> = offered
+            .into_iter()
+            .filter(|layer| mask & layer.bit() != 0)
+            .collect();
+
+        if layers.is_empty() {
+            return Err(SaslGssapiError::UnknownSecurityLayerOffer);
+        }
+
+        let max_message_size = u32::from(*high) << 16 | u32::from(*middle) << 8 | u32::from(*low);
+
+        Ok(Self {
+            layers,
+            max_message_size,
+        })
+    }
+}
+
+/// What the client answers the offer with: the one layer it picked, the
+/// largest message it will accept in turn, and who it wants to act as.
+///
+/// The bytes go back through the caller's security context, which wraps
+/// them, so this type stops at the plaintext.
+#[derive(Clone, Debug)]
+pub struct SaslGssapiSecurityLayerChoice {
+    /// The layer the client picked, which SHOULD be one the offer
+    /// carried.
+    pub layer: SaslGssapiSecurityLayer,
+    /// The largest message the client is willing to receive.
+    pub max_message_size: u32,
+    /// The optional authorization identity, sent as UTF-8 after the
+    /// four octets.
+    pub authzid: Option<String>,
+}
+
+impl SaslGssapiSecurityLayerChoice {
+    /// Assembles the plaintext of the client's answer, the same four
+    /// octets as the offer followed by the authorization identity.
+    ///
+    /// The size is truncated to the three octets the format gives it,
+    /// since a client asking for more than 16 MiB per message cannot
+    /// say so in this exchange.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let size = self.max_message_size.min(0xff_ffff);
+
+        let mut bytes = alloc::vec![
+            self.layer.bit(),
+            (size >> 16) as u8,
+            (size >> 8) as u8,
+            size as u8,
+        ];
+
+        if let Some(authzid) = &self.authzid {
+            bytes.extend_from_slice(authzid.as_bytes());
+        }
+
+        bytes
+    }
 }
 
 /// GSSAPI mechanism credentials ([RFC 4752]).
@@ -178,7 +320,7 @@ enum State {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
+    use alloc::{string::ToString, vec::Vec};
 
     use crate::{coroutine::*, rfc4752::gssapi::*};
 
@@ -235,6 +377,83 @@ mod tests {
             auth.resume(SaslArg::None),
             SaslCoroutineState::Complete(Err(SaslGssapiError::OutOfOrder)),
         ));
+    }
+
+    #[test]
+    fn the_security_layer_offer_reads_its_four_octets() {
+        // NOTE: every layer offered, and a maximum message size of
+        // 0x010000, which is the shape a Kerberos server sends.
+        let offer = SaslGssapiSecurityLayerOffer::parse(&[7, 1, 0, 0]).expect("a valid offer");
+
+        assert_eq!(
+            offer.layers,
+            [
+                SaslGssapiSecurityLayer::None,
+                SaslGssapiSecurityLayer::Integrity,
+                SaslGssapiSecurityLayer::Confidentiality,
+            ],
+        );
+        assert_eq!(offer.max_message_size, 0x01_0000);
+
+        let offer = SaslGssapiSecurityLayerOffer::parse(&[1, 0, 0, 0]).expect("a valid offer");
+
+        assert_eq!(offer.layers, [SaslGssapiSecurityLayer::None]);
+        assert_eq!(offer.max_message_size, 0);
+    }
+
+    #[test]
+    fn a_malformed_security_layer_offer_completes_err() {
+        assert!(matches!(
+            SaslGssapiSecurityLayerOffer::parse(&[1, 0, 0]),
+            Err(SaslGssapiError::TruncatedSecurityLayerOffer),
+        ));
+
+        assert!(matches!(
+            SaslGssapiSecurityLayerOffer::parse(&[]),
+            Err(SaslGssapiError::TruncatedSecurityLayerOffer),
+        ));
+
+        // NOTE: a bitmask carrying only bits the RFC never defined
+        // leaves the client nothing to pick, which is a failure rather
+        // than a silent choice of no layer.
+        assert!(matches!(
+            SaslGssapiSecurityLayerOffer::parse(&[8, 0, 0, 0]),
+            Err(SaslGssapiError::UnknownSecurityLayerOffer),
+        ));
+    }
+
+    #[test]
+    fn the_choice_answers_with_the_same_four_octets_and_the_identity() {
+        let choice = SaslGssapiSecurityLayerChoice {
+            layer: SaslGssapiSecurityLayer::None,
+            max_message_size: 0x01_0000,
+            authzid: Some("alice".to_string()),
+        };
+
+        assert_eq!(choice.to_bytes(), b"\x01\x01\x00\x00alice");
+
+        let choice = SaslGssapiSecurityLayerChoice {
+            layer: SaslGssapiSecurityLayer::Confidentiality,
+            max_message_size: 0,
+            authzid: None,
+        };
+
+        assert_eq!(choice.to_bytes(), [4, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_size_larger_than_the_format_is_truncated_to_it() {
+        // NOTE: three octets cap the size at 16 MiB, and a client
+        // asking for more has no way to say so; sending the low three
+        // octets of a larger number would announce something smaller
+        // than it means.
+        let choice = SaslGssapiSecurityLayerChoice {
+            layer: SaslGssapiSecurityLayer::Integrity,
+            max_message_size: u32::MAX,
+            authzid: None,
+        };
+
+        assert_eq!(choice.to_bytes(), [2, 0xff, 0xff, 0xff]);
     }
 
     fn creds() -> SaslGssapiCreds {

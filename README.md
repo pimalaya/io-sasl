@@ -23,8 +23,9 @@ There is no client layer, because the crate performs no I/O of any kind: it comp
 ## Features
 
 - **I/O-free mechanisms**: no_std state machines with no sockets and no async runtime, resumable from any blocking, async or in-memory test harness.
-- **Every registered mechanism a mail client meets**: ANONYMOUS, EXTERNAL, GSSAPI, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each computing exactly the payloads its specification defines.
-- **Kerberos as a building block**: GSSAPI is carried as a relay, since its tokens come from a Kerberos implementation that talks to a KDC. The library holds the exchange, the caller holds the security context.
+- **Every registered mechanism a mail client meets**: ANONYMOUS, CRAM-MD5, EXTERNAL, GSSAPI, GS2-KRB5, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each computing exactly the payloads its specification defines.
+- **Kerberos as a building block**: both Kerberos mechanisms are carried as relays, since their tokens come from an implementation that talks to a KDC. The library holds the exchange, the caller holds the security context, and GS2-KRB5 adds the channel binding the older one cannot have.
+- **Credentials prepared the way the specifications ask**: PLAIN and SCRAM run their username and password through SASLprep, so a password with a non-breaking space or a decomposed accent matches what the server stored instead of failing as a wrong password.
 - **Channel binding**: every SCRAM profile also speaks its `-PLUS` name, which ties the exchange to the TLS connection it runs on and is what stops a machine in the middle from replaying it.
 - **Downgrade detection**: a client that supports channel binding says so even when the server offered no `-PLUS` name, so a server that does support it sees the stripped offer and stops.
 - **Shared vocabulary**: one set of credential types describing what each mechanism needs, shared by every protocol library and by the account wizards that prompt for them.
@@ -33,30 +34,38 @@ There is no client layer, because the crate performs no I/O of any kind: it comp
 - **Credential redaction**: passwords and tokens stay inside secret wrappers and never reach the logs.
 
 > [!TIP]
-> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) to gate the SCRAM cryptography, since it is the only family pulling in extra crates: `scram` for the SHA-2 profiles and `scram-sha-1` for the legacy one, both enabled by default. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
+> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) for everything that pulls in an extra crate: `scram` for the SHA-2 profiles and `saslprep` for the credential preparation, both enabled by default, `scram-sha-1` for the legacy SCRAM profile and `cram-md5` for the legacy digest mechanism, both off unless a server asks for them. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
 
 ## RFC coverage
 
 | RFC    | What is covered                                                                                                       |
 |--------|-----------------------------------------------------------------------------------------------------------------------|
+| [2195] | The CRAM-MD5 mechanism: the keyed digest answering a server challenge, and the only server-first exchange here                |
+| [4013] | SASLprep: the mapping, normalization and prohibitions a client applies to a username and a password before sending either |
 | [4422] | The SASL framework: the notion of an authentication exchange, of an initial client response, and the EXTERNAL mechanism that defers to the outer channel |
 | [4505] | The ANONYMOUS mechanism: an optional trace token identifying an unauthenticated user                                  |
 | [4616] | The PLAIN mechanism: the authorization identity, authentication identity and password triple                          |
 | [4752] | The GSSAPI mechanism: the exchange around the Kerberos tokens, which the caller's own security context produces        |
+| [5801] | The GS2 bridge: the header a Kerberos mechanism opens with, the three channel binding flags every `-PLUS` name rests on, and GS2-KRB5 itself |
 | [5802] | The SCRAM family: salted password derivation, the client proof, verification of the server signature, the SHA-1 profile, and the channel binding flags including the one that reports a stripped offer |
 | [5929] | The TLS channel bindings a `-PLUS` exchange can be bound to below TLS 1.3, `tls-unique` and `tls-server-end-point`     |
 | [7628] | The OAUTHBEARER mechanism: the bearer token message, and the acknowledgement the server needs to report a failure     |
 | [7677] | The SHA-256 profile of SCRAM, verified against the exchange published in the specification                            |
 | [9266] | The `tls-exporter` channel binding, the only one defined for TLS 1.3                                                  |
 
-The channel binding material itself is extracted from the TLS session by the caller and handed over with the credentials, since a library that opens no connection cannot ask a session what it exported.
+The channel binding material itself is extracted from the TLS session by the caller and handed over with the credentials, since a library that opens no connection cannot ask a session what it exported. Kerberos tokens arrive the same way, from a security context the caller holds.
+
+SASLprep leaves out two of the checks RFC 3454 lists, the bidirectional rule and the unassigned code points, both of which reject strings rather than change them; everything that decides what bytes go on the wire is applied.
 
 Three mechanisms were never standardised: LOGIN follows [draft-murchison-sasl-login](https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00), SCRAM-SHA-512 follows [draft-melnikov-scram-sha-512](https://datatracker.ietf.org/doc/html/draft-melnikov-scram-sha-512) and is registered with IANA under that name, and XOAUTH2 follows the [Google specification](https://developers.google.com/gmail/imap/xoauth2-protocol) that Google and Microsoft implement.
 
+[2195]: https://www.rfc-editor.org/rfc/rfc2195
+[4013]: https://www.rfc-editor.org/rfc/rfc4013
 [4422]: https://www.rfc-editor.org/rfc/rfc4422
 [4505]: https://www.rfc-editor.org/rfc/rfc4505
 [4616]: https://www.rfc-editor.org/rfc/rfc4616
 [4752]: https://www.rfc-editor.org/rfc/rfc4752
+[5801]: https://www.rfc-editor.org/rfc/rfc5801
 [5802]: https://www.rfc-editor.org/rfc/rfc5802
 [5929]: https://www.rfc-editor.org/rfc/rfc5929
 [7628]: https://www.rfc-editor.org/rfc/rfc7628

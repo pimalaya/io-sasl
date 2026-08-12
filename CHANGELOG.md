@@ -35,9 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the EXTERNAL mechanism following RFC 4422 appendix A, sending the optional authorization identity and letting the outer channel authenticate.
 
+- Added the CRAM-MD5 mechanism following RFC 2195, behind the `cram-md5` cargo feature.
+
+  Verified against the exchange published in RFC 2195 section 2. The only server-first mechanism here: it answers the first resume with `WantsRead`, so a protocol crate has no initial response to inline.
+
+- Added SASLprep following RFC 4013, behind the `saslprep` cargo feature, enabled by default.
+
+  PLAIN and SCRAM prepare their username and password before sending or deriving anything, which is what RFC 4616 and RFC 5802 ask for and what makes a password carrying a non-breaking space or a decomposed accent match the one the server stored. The bidirectional rule and the unassigned code points of RFC 3454 are not checked, both rejecting strings rather than changing them.
+
+- Added the GS2-KRB5 mechanism following RFC 5801, relayed like GSSAPI but with the GS2 header this crate writes itself.
+
+  The header carries the authorization identity and the channel binding flag, so Kerberos gets the `-PLUS` name and the downgrade detection SCRAM already had. The channel binding vocabulary moved to `rfc5801`, where the GS2 bridge defines it, and SCRAM now shares it.
+
 - Added the GSSAPI mechanism following RFC 4752, as a relay rather than an implementation.
 
-  Its tokens come from a Kerberos implementation that reads a credential cache and talks to a KDC, which this crate can neither host nor hoist into credentials. So `SaslGssapiCreds` carries the first token, every `Input` is forwarded verbatim as the next response, and the caller advances its own security context between the two. The library holds the mechanism name, the initial response and the sequencing; the caller holds the context, the round count and the security layer negotiation of RFC 4752 section 3.1.
+  Its tokens come from a Kerberos implementation that reads a credential cache and talks to a KDC, which this crate can neither host nor hoist into credentials. So `SaslGssapiCreds` carries the first token, every `Input` is forwarded verbatim as the next response, and the caller advances its own security context between the two. The library holds the mechanism name, the initial response and the sequencing; the caller holds the context and the round count. The security layer negotiation of RFC 4752 section 3.1 is carried as two pure functions, `SaslGssapiSecurityLayerOffer::parse` and `SaslGssapiSecurityLayerChoice::to_bytes`, since only the caller can move those bytes through its context.
 
 - Added the SCRAM family following RFC 5802, behind the `scram` cargo feature, in three profiles: SHA-256 (RFC 7677) and SHA-512 (draft-melnikov-scram-sha-512) by default, SHA-1 (RFC 5802) behind `scram-sha-1`.
 

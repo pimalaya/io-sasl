@@ -10,11 +10,13 @@
 //!
 //! [SASL]: https://www.rfc-editor.org/rfc/rfc4422
 
+#[cfg(feature = "cram-md5")]
+use crate::rfc2195::cram_md5::SaslCramMd5Creds;
 use crate::{
     login::SaslLoginCreds, rfc4422::external::SaslExternalCreds,
     rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
-    rfc4752::gssapi::SaslGssapiCreds, rfc7628::oauthbearer::SaslOauthbearerCreds,
-    xoauth2::SaslXoauth2Creds,
+    rfc4752::gssapi::SaslGssapiCreds, rfc5801::gs2_krb5::SaslGs2Krb5Creds,
+    rfc7628::oauthbearer::SaslOauthbearerCreds, xoauth2::SaslXoauth2Creds,
 };
 
 #[cfg(feature = "scram")]
@@ -29,10 +31,17 @@ use crate::rfc5802::SaslScramCreds;
 pub enum SaslMechanism {
     /// The ANONYMOUS mechanism (RFC 4505).
     Anonymous,
+    /// The CRAM-MD5 mechanism (RFC 2195).
+    CramMd5,
     /// The EXTERNAL mechanism (RFC 4422 appendix A).
     External,
     /// The GSSAPI mechanism, Kerberos V5 (RFC 4752).
     Gssapi,
+    /// The GS2-KRB5 mechanism, Kerberos V5 through the GS2 bridge
+    /// (RFC 5801).
+    Gs2Krb5,
+    /// The GS2-KRB5 mechanism with channel binding (RFC 5801).
+    Gs2Krb5Plus,
     /// The legacy LOGIN mechanism.
     Login,
     /// The PLAIN mechanism (RFC 4616).
@@ -62,8 +71,11 @@ impl SaslMechanism {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Anonymous => "ANONYMOUS",
+            Self::CramMd5 => "CRAM-MD5",
             Self::External => "EXTERNAL",
             Self::Gssapi => "GSSAPI",
+            Self::Gs2Krb5 => "GS2-KRB5",
+            Self::Gs2Krb5Plus => "GS2-KRB5-PLUS",
             Self::Login => "LOGIN",
             Self::Plain => "PLAIN",
             Self::OAuthBearer => "OAUTHBEARER",
@@ -95,10 +107,16 @@ impl SaslMechanism {
 pub enum Sasl {
     /// ANONYMOUS credentials.
     Anonymous(SaslAnonymousCreds),
+    /// CRAM-MD5 credentials.
+    #[cfg(feature = "cram-md5")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cram-md5")))]
+    CramMd5(SaslCramMd5Creds),
     /// EXTERNAL credentials.
     External(SaslExternalCreds),
     /// GSSAPI credentials.
     Gssapi(SaslGssapiCreds),
+    /// GS2-KRB5 credentials, plain or `-PLUS`.
+    Gs2Krb5(SaslGs2Krb5Creds),
     /// LOGIN credentials.
     Login(SaslLoginCreds),
     /// PLAIN credentials.
@@ -127,6 +145,13 @@ impl From<SaslAnonymousCreds> for Sasl {
     }
 }
 
+#[cfg(feature = "cram-md5")]
+impl From<SaslCramMd5Creds> for Sasl {
+    fn from(sasl: SaslCramMd5Creds) -> Self {
+        Self::CramMd5(sasl)
+    }
+}
+
 impl From<SaslExternalCreds> for Sasl {
     fn from(sasl: SaslExternalCreds) -> Self {
         Self::External(sasl)
@@ -136,6 +161,12 @@ impl From<SaslExternalCreds> for Sasl {
 impl From<SaslGssapiCreds> for Sasl {
     fn from(sasl: SaslGssapiCreds) -> Self {
         Self::Gssapi(sasl)
+    }
+}
+
+impl From<SaslGs2Krb5Creds> for Sasl {
+    fn from(sasl: SaslGs2Krb5Creds) -> Self {
+        Self::Gs2Krb5(sasl)
     }
 }
 
@@ -174,14 +205,22 @@ mod tests {
     use secrecy::SecretString;
 
     use crate::{
-        login::SaslLoginCreds, mechanism::*, rfc4422::external::SaslExternalCreds,
-        rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
-        rfc4752::gssapi::SaslGssapiCreds, rfc7628::oauthbearer::SaslOauthbearerCreds,
+        login::SaslLoginCreds,
+        mechanism::*,
+        rfc4422::external::SaslExternalCreds,
+        rfc4505::anonymous::SaslAnonymousCreds,
+        rfc4616::plain::SaslPlainCreds,
+        rfc4752::gssapi::SaslGssapiCreds,
+        rfc5801::{SaslGs2ChannelBinding, gs2_krb5::SaslGs2Krb5Creds},
+        rfc7628::oauthbearer::SaslOauthbearerCreds,
         xoauth2::SaslXoauth2Creds,
     };
 
+    #[cfg(feature = "cram-md5")]
+    use crate::rfc2195::cram_md5::SaslCramMd5Creds;
+
     #[cfg(feature = "scram")]
-    use crate::rfc5802::{SaslScramChannelBinding, SaslScramCreds};
+    use crate::rfc5802::SaslScramCreds;
 
     #[test]
     fn every_mechanism_spells_the_name_it_is_registered_under() {
@@ -222,11 +261,14 @@ mod tests {
     /// missing one, it is two of them landing on the same place, which
     /// only a walk over all of them can see. The table is whole
     /// whatever the build enables, since so is the tag.
-    fn names() -> [(SaslMechanism, &'static str); 13] {
+    fn names() -> [(SaslMechanism, &'static str); 16] {
         [
             (SaslMechanism::Anonymous, "ANONYMOUS"),
+            (SaslMechanism::CramMd5, "CRAM-MD5"),
             (SaslMechanism::External, "EXTERNAL"),
             (SaslMechanism::Gssapi, "GSSAPI"),
+            (SaslMechanism::Gs2Krb5, "GS2-KRB5"),
+            (SaslMechanism::Gs2Krb5Plus, "GS2-KRB5-PLUS"),
             (SaslMechanism::Login, "LOGIN"),
             (SaslMechanism::Plain, "PLAIN"),
             (SaslMechanism::OAuthBearer, "OAUTHBEARER"),
@@ -256,10 +298,28 @@ mod tests {
                 SaslMechanism::External,
                 SaslExternalCreds { authzid: None }.into(),
             ),
+            #[cfg(feature = "cram-md5")]
+            (
+                SaslMechanism::CramMd5,
+                SaslCramMd5Creds {
+                    username: "alice".into(),
+                    secret: SecretString::from("pencil"),
+                }
+                .into(),
+            ),
             (
                 SaslMechanism::Gssapi,
                 SaslGssapiCreds {
                     token: b"token".to_vec(),
+                }
+                .into(),
+            ),
+            (
+                SaslMechanism::Gs2Krb5,
+                SaslGs2Krb5Creds {
+                    token: b"token".to_vec(),
+                    authzid: None,
+                    channel_binding: SaslGs2ChannelBinding::Unsupported,
                 }
                 .into(),
             ),
@@ -328,7 +388,7 @@ mod tests {
             username: "alice".into(),
             password: SecretString::from("pencil"),
             nonce: vec![],
-            channel_binding: SaslScramChannelBinding::Unsupported,
+            channel_binding: SaslGs2ChannelBinding::Unsupported,
         }
     }
 
@@ -341,8 +401,11 @@ mod tests {
     fn variant(sasl: &Sasl) -> SaslMechanism {
         match sasl {
             Sasl::Anonymous(_) => SaslMechanism::Anonymous,
+            #[cfg(feature = "cram-md5")]
+            Sasl::CramMd5(_) => SaslMechanism::CramMd5,
             Sasl::External(_) => SaslMechanism::External,
             Sasl::Gssapi(_) => SaslMechanism::Gssapi,
+            Sasl::Gs2Krb5(_) => SaslMechanism::Gs2Krb5,
             Sasl::Login(_) => SaslMechanism::Login,
             Sasl::Plain(_) => SaslMechanism::Plain,
             Sasl::Oauthbearer(_) => SaslMechanism::OAuthBearer,

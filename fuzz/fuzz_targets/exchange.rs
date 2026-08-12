@@ -19,14 +19,16 @@ use arbitrary::Arbitrary;
 use io_sasl::{
     coroutine::*,
     login::{SaslLogin, SaslLoginCreds},
+    rfc2195::cram_md5::{SaslCramMd5, SaslCramMd5Creds},
     rfc4422::external::{SaslExternal, SaslExternalCreds},
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
-    rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
-    rfc5802::{
-        SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds,
-        scram_sha_1::SaslScramSha1,
+    rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
+    rfc5801::{
+        SaslGs2ChannelBinding, SaslGs2ChannelBindingKind,
+        gs2_krb5::{SaslGs2Krb5, SaslGs2Krb5Creds},
     },
+    rfc5802::{SaslScramCreds, scram_sha_1::SaslScramSha1},
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
     rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
@@ -65,6 +67,8 @@ fuzz_target!(|exchange: Exchange| {
     unstarted(SaslAnonymous::new(exchange.anonymous()), &first);
     unstarted(SaslExternal::new(exchange.external()), &first);
     unstarted(SaslGssapi::new(exchange.gssapi()), &first);
+    unstarted(SaslCramMd5::new(exchange.cram_md5()), &first);
+    unstarted(SaslGs2Krb5::new(exchange.gs2_krb5()), &first);
     unstarted(SaslLogin::new(exchange.login()), &first);
     unstarted(SaslPlain::new(exchange.plain()), &first);
     unstarted(SaslOauthbearer::new(exchange.oauthbearer()), &first);
@@ -81,6 +85,8 @@ fuzz_target!(|exchange: Exchange| {
     exchange.drive(SaslAnonymous::new(exchange.anonymous()));
     exchange.drive(SaslExternal::new(exchange.external()));
     exchange.drive(SaslGssapi::new(exchange.gssapi()));
+    exchange.drive(SaslCramMd5::new(exchange.cram_md5()));
+    exchange.drive(SaslGs2Krb5::new(exchange.gs2_krb5()));
     exchange.drive(SaslLogin::new(exchange.login()));
     exchange.drive(SaslPlain::new(exchange.plain()));
     exchange.drive(SaslOauthbearer::new(exchange.oauthbearer()));
@@ -157,6 +163,24 @@ impl Exchange {
         }
     }
 
+    fn cram_md5(&self) -> SaslCramMd5Creds {
+        SaslCramMd5Creds {
+            username: self.username.clone(),
+            secret: SecretString::from(self.password.clone()),
+        }
+    }
+
+    fn gs2_krb5(&self) -> SaslGs2Krb5Creds {
+        SaslGs2Krb5Creds {
+            token: self.token.clone().into_bytes(),
+            authzid: Some(self.username.clone()),
+            channel_binding: SaslGs2ChannelBinding::Bound {
+                kind: SaslGs2ChannelBindingKind::TlsExporter,
+                data: self.binding.clone(),
+            },
+        }
+    }
+
     fn gssapi(&self) -> SaslGssapiCreds {
         SaslGssapiCreds {
             token: self.token.clone().into_bytes(),
@@ -171,12 +195,12 @@ impl Exchange {
 
     fn scram(&self, bound: bool) -> SaslScramCreds {
         let channel_binding = if bound {
-            SaslScramChannelBinding::Bound {
-                kind: SaslScramChannelBindingKind::TlsExporter,
+            SaslGs2ChannelBinding::Bound {
+                kind: SaslGs2ChannelBindingKind::TlsExporter,
                 data: self.binding.clone(),
             }
         } else {
-            SaslScramChannelBinding::Unsupported
+            SaslGs2ChannelBinding::Unsupported
         };
 
         SaslScramCreds {

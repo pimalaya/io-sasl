@@ -20,7 +20,8 @@
 //! ```rust
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
-//!     rfc5802::{SaslScramChannelBinding, SaslScramCreds, scram_sha_1::SaslScramSha1},
+//!     rfc5801::SaslGs2ChannelBinding,
+//!     rfc5802::{SaslScramCreds, scram_sha_1::SaslScramSha1},
 //! };
 //! use secrecy::SecretString;
 //!
@@ -28,7 +29,7 @@
 //!     username: "user".into(),
 //!     password: SecretString::from("pencil"),
 //!     nonce: b"fyko+d2lbbFgONRv9qkxdawL".to_vec(),
-//!     channel_binding: SaslScramChannelBinding::Unsupported,
+//!     channel_binding: SaslGs2ChannelBinding::Unsupported,
 //! });
 //!
 //! let state = auth.resume(SaslArg::None);
@@ -102,9 +103,8 @@ mod tests {
     use crate::{
         coroutine::*,
         mechanism::SaslMechanism,
-        rfc5802::{
-            SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds, scram_sha_1::*,
-        },
+        rfc5801::{SaslGs2ChannelBinding, SaslGs2ChannelBindingKind},
+        rfc5802::{SaslScramCreds, scram_sha_1::*},
     };
 
     // NOTE: the published exchange of RFC 5802 section 5, for the user
@@ -142,8 +142,8 @@ mod tests {
         assert_eq!(plain.mechanism(), SaslMechanism::ScramSha1);
 
         let bound = SaslScramSha1::new(SaslScramCreds {
-            channel_binding: SaslScramChannelBinding::Bound {
-                kind: SaslScramChannelBindingKind::TlsExporter,
+            channel_binding: SaslGs2ChannelBinding::Bound {
+                kind: SaslGs2ChannelBindingKind::TlsExporter,
                 data: b"binding".to_vec(),
             },
             ..creds()
@@ -157,7 +157,7 @@ mod tests {
             username: "user".to_string(),
             password: SecretString::from("pencil".to_string()),
             nonce: CLIENT_NONCE.to_vec(),
-            channel_binding: SaslScramChannelBinding::Unsupported,
+            channel_binding: SaslGs2ChannelBinding::Unsupported,
         }
     }
 

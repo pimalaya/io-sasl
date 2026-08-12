@@ -12,7 +12,7 @@ The crate is published as io-sasl, the I/O-free SASL layer every Pimalaya protoc
 `#![no_std]` SHALL be unconditional and `extern crate alloc` SHALL be declared, since the crate allocates. The crate SHALL stay alloc-only: no `extern crate std`, no client layer, no I/O.
 
 ### Requirement: Dependencies
-The vocabulary and the mechanisms needing no cryptography SHALL depend only on `secrecy`, `log` and `thiserror`. `base64`, `hmac`, `pbkdf2` and `sha2` SHALL be optional and pulled by the `scram` feature, `sha1` by `scram-sha-1`. A random number generator SHALL NOT be a dependency, and neither SHALL a TLS implementation.
+The vocabulary and the mechanisms needing no cryptography SHALL depend only on `secrecy`, `log` and `thiserror`. `base64`, `hmac`, `pbkdf2` and `sha2` SHALL be optional and pulled by the `scram` feature, `sha1` by `scram-sha-1`, `md-5` by `cram-md5`, and `unicode-normalization` by `saslprep`. A random number generator SHALL NOT be a dependency, and neither SHALL a TLS implementation or a Kerberos one.
 
 ### Requirement: Public surface
 There SHALL be no re-export at the crate root: consumers reach items through module-qualified paths. Every public item SHALL be documented, enforced by `#![deny(missing_docs)]`.

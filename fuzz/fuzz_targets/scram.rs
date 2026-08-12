@@ -27,7 +27,8 @@ use base64::{Engine, engine::general_purpose::STANDARD as base64};
 use hmac::{Hmac, KeyInit, Mac};
 use io_sasl::{
     coroutine::*,
-    rfc5802::{SaslScramChannelBinding, SaslScramCreds, SaslScramError},
+    rfc5801::SaslGs2ChannelBinding,
+    rfc5802::{SaslScramCreds, SaslScramError},
     rfc7677::scram_sha_256::SaslScramSha256,
 };
 use libfuzzer_sys::fuzz_target;
@@ -90,15 +91,22 @@ impl Exchange {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
             nonce: self.nonce.clone(),
-            channel_binding: SaslScramChannelBinding::Unsupported,
+            channel_binding: SaslGs2ChannelBinding::Unsupported,
         };
 
         let mut auth = SaslScramSha256::new(creds);
 
         let started = auth.resume(SaslArg::None);
 
-        let SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_first)) = started else {
-            panic!("SCRAM-SHA-256 answered Start with {started:?} instead of a response");
+        let client_first = match started {
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(client_first)) => client_first,
+            // NOTE: the credentials are fuzzed, so one of them can carry
+            // a character SASLprep prohibits, and refusing the exchange
+            // before it starts is the answer the profile asks for. Only
+            // a refusal is allowed here: answering Start with a success
+            // or with a read would be a finding.
+            SaslCoroutineState::Complete(Err(_)) => return,
+            state => panic!("SCRAM-SHA-256 answered Start with {state:?} instead of a response"),
         };
 
         let mut oracle = Oracle::new(&self.password, &client_first);

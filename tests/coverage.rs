@@ -24,15 +24,21 @@ use io_sasl::{
     rfc4505::anonymous::{SaslAnonymous, SaslAnonymousCreds},
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
     rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
+    rfc5801::{
+        SaslGs2ChannelBinding, SaslGs2ChannelBindingKind,
+        gs2_krb5::{SaslGs2Krb5, SaslGs2Krb5Creds},
+    },
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
     xoauth2::{SaslXoauth2, SaslXoauth2Creds},
 };
 use secrecy::SecretString;
 
+#[cfg(feature = "cram-md5")]
+use io_sasl::rfc2195::cram_md5::{SaslCramMd5, SaslCramMd5Creds};
+
 #[cfg(feature = "scram")]
 use io_sasl::{
-    rfc5802::{SaslScramChannelBinding, SaslScramChannelBindingKind, SaslScramCreds},
-    rfc7677::scram_sha_256::SaslScramSha256,
+    rfc5802::SaslScramCreds, rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
 };
 
@@ -82,6 +88,21 @@ fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
         token: SecretString::from("vF9dft4qmT"),
     });
     let external = SaslExternal::new(SaslExternalCreds { authzid: None });
+    #[cfg(feature = "cram-md5")]
+    let cram_md5 = SaslCramMd5::new(SaslCramMd5Creds {
+        username: "alice".into(),
+        secret: SecretString::from("pencil"),
+    });
+    let gs2_krb5 = SaslGs2Krb5::new(SaslGs2Krb5Creds {
+        token: b"token".to_vec(),
+        authzid: None,
+        channel_binding: Default::default(),
+    });
+    let gs2_krb5_plus = SaslGs2Krb5::new(SaslGs2Krb5Creds {
+        token: b"token".to_vec(),
+        authzid: None,
+        channel_binding: bound(),
+    });
     let gssapi = SaslGssapi::new(SaslGssapiCreds {
         token: b"token".to_vec(),
     });
@@ -89,7 +110,11 @@ fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
     let mut walk = vec![
         (SaslMechanism::Anonymous, anonymous.mechanism()),
         (SaslMechanism::External, external.mechanism()),
+        #[cfg(feature = "cram-md5")]
+        (SaslMechanism::CramMd5, cram_md5.mechanism()),
         (SaslMechanism::Gssapi, gssapi.mechanism()),
+        (SaslMechanism::Gs2Krb5, gs2_krb5.mechanism()),
+        (SaslMechanism::Gs2Krb5Plus, gs2_krb5_plus.mechanism()),
         (SaslMechanism::Login, login.mechanism()),
         (SaslMechanism::Plain, plain.mechanism()),
         (SaslMechanism::OAuthBearer, oauthbearer.mechanism()),
@@ -108,9 +133,9 @@ fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
 /// the only place it can be caught is here.
 #[cfg(feature = "scram")]
 fn scram() -> Vec<(SaslMechanism, SaslMechanism)> {
-    let sha256 = SaslScramSha256::new(scram_creds(SaslScramChannelBinding::Unsupported));
+    let sha256 = SaslScramSha256::new(scram_creds(SaslGs2ChannelBinding::Unsupported));
     let sha256_plus = SaslScramSha256::new(scram_creds(bound()));
-    let sha512 = SaslScramSha512::new(scram_creds(SaslScramChannelBinding::Unsupported));
+    let sha512 = SaslScramSha512::new(scram_creds(SaslGs2ChannelBinding::Unsupported));
     let sha512_plus = SaslScramSha512::new(scram_creds(bound()));
 
     let mut walk = vec![
@@ -131,7 +156,7 @@ fn scram() -> Vec<(SaslMechanism, SaslMechanism)> {
 
 #[cfg(feature = "scram-sha-1")]
 fn scram_sha_1() -> Vec<(SaslMechanism, SaslMechanism)> {
-    let sha1 = SaslScramSha1::new(scram_creds(SaslScramChannelBinding::Unsupported));
+    let sha1 = SaslScramSha1::new(scram_creds(SaslGs2ChannelBinding::Unsupported));
     let sha1_plus = SaslScramSha1::new(scram_creds(bound()));
 
     vec![
@@ -145,16 +170,15 @@ fn scram_sha_1() -> Vec<(SaslMechanism, SaslMechanism)> {
     Vec::new()
 }
 
-#[cfg(feature = "scram")]
-fn bound() -> SaslScramChannelBinding {
-    SaslScramChannelBinding::Bound {
-        kind: SaslScramChannelBindingKind::TlsExporter,
+fn bound() -> SaslGs2ChannelBinding {
+    SaslGs2ChannelBinding::Bound {
+        kind: SaslGs2ChannelBindingKind::TlsExporter,
         data: b"binding".to_vec(),
     }
 }
 
 #[cfg(feature = "scram")]
-fn scram_creds(channel_binding: SaslScramChannelBinding) -> SaslScramCreds {
+fn scram_creds(channel_binding: SaslGs2ChannelBinding) -> SaslScramCreds {
     SaslScramCreds {
         username: "alice".into(),
         password: SecretString::from("pencil"),

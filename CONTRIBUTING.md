@@ -21,16 +21,19 @@ Everything else follows io-imap, since the two crates are read together. A yield
 
 ## Feature matrix
 
-The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Two cargo features, both about cryptography, since nothing else pulls a crate in. `scram` pulls the HMAC, PBKDF2, SHA-2 and base64 crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `scram-sha-1` adds the SHA-1 profile and its own digest crate. Both are in the default set, so the reduced build is the one to remember to check.
+The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Every feature exists because it pulls a crate in, which is the only justification for one.
 
-Build the shapes that differ:
+`scram` pulls the HMAC, PBKDF2, SHA-2 and base64 crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `saslprep` pulls the Unicode normalization the credential preparation needs. Both are in the default set, the first because SCRAM is what most servers offer and the second because it is correctness rather than a mechanism.
+
+`scram-sha-1` adds the legacy SCRAM profile and its digest crate, and `cram-md5` the legacy digest mechanism and its own. Both stay off, so a build gets a weak mechanism only by asking for it.
+
+Build the three shapes that differ:
 
 ```sh
-cargo build --no-default-features  # the mechanisms needing no cryptography
-cargo build --all-features         # every profile, which is also the default
+cargo build --no-default-features  # the mechanisms needing no extra crate
+cargo build                        # the SCRAM SHA-2 profiles and SASLprep
+cargo build --all-features         # the legacy mechanisms too
 ```
-
-A build that wants the SHA-2 profiles without the legacy digest asks for `--no-default-features --features scram`.
 
 ## Tests
 
@@ -38,10 +41,11 @@ Three layers, each answering a different question. The unit tests next to each m
 
 The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it.
 
-Run both feature shapes, since each compiles a different set of mechanisms:
+Run the three shapes, since each compiles a different set of mechanisms:
 
 ```sh
 cargo test --no-default-features
+cargo test
 cargo test --all-features
 ```
 
@@ -55,7 +59,7 @@ cargo tarpaulin --all-features --skip-clean --out Stdout
 
 tarpaulin.toml keeps the fuzz targets out of the measured surface: they are a separate cargo package that the coverage run never builds. Never twist the code to move the number. Code no test can reach is either dead, and goes, or is worth a test that means something on its own.
 
-The number to expect is 97.94%, not 100%, and the gap is a measurement artifact rather than untested code. Six lines of src/rfc5802.rs read as uncovered: the second line of a two-line `format!` call, the tail of the constant-time comparison, and four match-arm patterns whose bodies are counted as covered. They are all inside the generic SCRAM exchange, which the compiler instantiates once per digest, and tarpaulin attributes one address per source line across those instantiations. Both engines report the same six. Mutating any of them makes several tests fail, which is the check to redo rather than trusting this paragraph: the whole point of a coverage run is that nobody has to.
+The number to expect is 98.22%, not 100%, and the gap is a measurement artifact rather than untested code. Eight lines read as uncovered: seven inside the generic SCRAM exchange of src/rfc5802.rs and one inside a multi-line `vec!` in src/rfc4752/gssapi.rs. They are second lines of multi-line expressions and match-arm patterns whose bodies are counted as covered, and the SCRAM ones sit in code the compiler instantiates once per digest while tarpaulin attributes one address per source line. Both engines report the same set. Mutating any of them makes several tests fail, which is the check to redo rather than trusting this paragraph: the whole point of a coverage run is that nobody has to.
 
 ## Fuzzing
 

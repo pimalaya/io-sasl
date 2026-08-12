@@ -21,33 +21,41 @@
 //! command grammars, their continuation requests and their reply
 //! codes, and share the mechanisms.
 //!
-//! Every mechanism is client-side: ANONYMOUS, EXTERNAL, GSSAPI, LOGIN,
-//! PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM profiles SHA-1, SHA-256
-//! and SHA-512, each of those under both the name it is registered with
-//! and the `-PLUS` name it takes when a channel binding is in use.
-//! Server-side SASL is out of scope.
+//! Every mechanism is client-side: ANONYMOUS, CRAM-MD5, EXTERNAL,
+//! GSSAPI, GS2-KRB5, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM
+//! profiles SHA-1, SHA-256 and SHA-512, the last four under both the
+//! name they are registered with and the `-PLUS` name they take when a
+//! channel binding is in use. Server-side SASL is out of scope.
 //!
-//! Eleven of the twelve compute what they send. GSSAPI cannot: its
-//! tokens come from a Kerberos implementation that reads a credential
-//! cache and talks to a KDC, which is I/O this crate can neither host
-//! nor hoist into its credentials. It is carried anyway, as a relay:
-//! [`rfc4752::gssapi`] holds the SASL half of the mechanism, the name,
-//! the initial response and the sequencing, while the caller holds the
-//! security context. That is the building block a consumer needs, not
-//! the whole mechanism, and the module says exactly where the line
-//! falls.
+//! Most of them compute what they send. The two Kerberos mechanisms
+//! cannot: their tokens come from an implementation that reads a
+//! credential cache and talks to a KDC, which is I/O this crate can
+//! neither host nor hoist into its credentials. They are carried anyway,
+//! as relays: [`rfc4752::gssapi`] and [`rfc5801::gs2_krb5`] hold the
+//! SASL half of the mechanism, the name, the initial response and the
+//! sequencing, while the caller holds the security context. That is the
+//! building block a consumer needs, not the whole mechanism, and each
+//! module says exactly where the line falls.
 //!
 //! ## Layout
 //!
 //! One module per RFC where one exists, and a root module for the
 //! mechanisms that never got one:
 //!
+//! - [`rfc2195::cram_md5`], the CRAM-MD5 mechanism, behind the
+//!   `cram-md5` cargo feature and the only server-first one
+//! - [`rfc4013`], SASLprep, which is not a mechanism but the string
+//!   preparation PLAIN and SCRAM run their credentials through, behind
+//!   the `saslprep` feature
 //! - [`rfc4422::external`], the EXTERNAL mechanism, defined by the SASL
 //!   framework itself
 //! - [`rfc4505::anonymous`], the ANONYMOUS mechanism
 //! - [`rfc4616::plain`], the PLAIN mechanism
 //! - [`rfc4752::gssapi`], the GSSAPI mechanism, relayed rather than
 //!   computed
+//! - [`rfc5801`], the GS2 bridge: the channel binding vocabulary every
+//!   `-PLUS` name rests on, and [`rfc5801::gs2_krb5`], Kerberos through
+//!   that bridge
 //! - [`rfc5802`], the SCRAM family and its SHA-1 profile
 //!   ([`rfc5802::scram_sha_1`], behind the `scram-sha-1` cargo feature)
 //! - [`rfc7628::oauthbearer`], the OAUTHBEARER mechanism
@@ -111,8 +119,9 @@
 //! [RFC 4954] grammar. Whether to inline it, and whether a given
 //! server can be trusted to accept it, is the protocol crate's
 //! decision, not this crate's. A mechanism answering
-//! [`coroutine::SaslYield::WantsRead`] is server-first instead;
-//! none of the mechanisms here is, but the vocabulary expresses it.
+//! [`coroutine::SaslYield::WantsRead`] is server-first instead, which
+//! CRAM-MD5 is and nothing else here: the protocol then has no initial
+//! response to inline and sends its command bare.
 //!
 //! ## Boundaries
 //!
@@ -169,10 +178,17 @@ extern crate alloc;
 pub mod coroutine;
 pub mod login;
 pub mod mechanism;
+#[cfg(feature = "cram-md5")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cram-md5")))]
+pub mod rfc2195;
+#[cfg(feature = "saslprep")]
+#[cfg_attr(docsrs, doc(cfg(feature = "saslprep")))]
+pub mod rfc4013;
 pub mod rfc4422;
 pub mod rfc4505;
 pub mod rfc4616;
 pub mod rfc4752;
+pub mod rfc5801;
 #[cfg(feature = "scram")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
 pub mod rfc5802;

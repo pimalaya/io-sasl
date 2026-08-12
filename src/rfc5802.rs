@@ -25,7 +25,7 @@
 //! Every profile is registered twice, plain and `-PLUS`, and the
 //! difference is entirely in the GS2 header of the client-first-message
 //! and in the `c=` field that repeats it. The three cases are the three
-//! variants of [`SaslScramChannelBinding`], and picking one picks the
+//! variants of [`SaslGs2ChannelBinding`], and picking one picks the
 //! mechanism name [`SaslCoroutine::mechanism`] reports.
 //!
 //! The binding material itself is supplied with the credentials rather
@@ -58,7 +58,14 @@ use pbkdf2::pbkdf2_hmac;
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
-use crate::{coroutine::*, mechanism::SaslMechanism};
+use crate::{
+    coroutine::*,
+    mechanism::SaslMechanism,
+    rfc5801::{SaslGs2ChannelBinding, escape},
+};
+
+#[cfg(feature = "saslprep")]
+use crate::rfc4013::{SaslPrepError, saslprep};
 
 #[cfg(feature = "scram-sha-1")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram-sha-1")))]
@@ -71,6 +78,13 @@ pub mod scram_sha_1;
 /// is running.
 #[derive(Clone, Debug, Error)]
 pub enum SaslScramError {
+    /// A credential carried a code point SASLprep prohibits, so it
+    /// cannot be prepared and the key derivation would run on bytes
+    /// the server never stored.
+    #[cfg(feature = "saslprep")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "saslprep")))]
+    #[error("SASL SCRAM failed: {0}")]
+    Preparation(#[from] SaslPrepError),
     /// A server message was not valid UTF-8.
     #[error("SASL SCRAM failed: invalid server message encoding")]
     InvalidEncoding,
@@ -118,64 +132,6 @@ pub enum SaslScramError {
     UnexpectedChallenge,
 }
 
-/// The channel binding an exchange runs with, which is also what picks
-/// between a profile's two registered names.
-///
-/// [RFC 5802 section 6] makes the middle case mandatory rather than
-/// cosmetic: a client that supports channel binding and does not use it
-/// SHALL say so, so that a server supporting it too can see that its
-/// `-PLUS` name was stripped in flight and abort.
-///
-/// [RFC 5802 section 6]: https://www.rfc-editor.org/rfc/rfc5802#section-6
-#[derive(Clone, Debug)]
-pub enum SaslScramChannelBinding {
-    /// The client does not support channel binding, the `n` flag.
-    Unsupported,
-    /// The client supports channel binding but the server never
-    /// advertised the `-PLUS` name, the `y` flag.
-    Unused,
-    /// Channel binding is in use, the `p` flag.
-    Bound {
-        /// Which binding the data was extracted from.
-        kind: SaslScramChannelBindingKind,
-        /// The binding material, extracted from the TLS session by the
-        /// caller.
-        data: Vec<u8>,
-    },
-}
-
-/// The channel bindings a TLS connection can offer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SaslScramChannelBindingKind {
-    /// The TLS 1.3 exporter binding ([RFC 9266]), the only one defined
-    /// for that version and the one to prefer where both exist.
-    ///
-    /// [RFC 9266]: https://www.rfc-editor.org/rfc/rfc9266
-    TlsExporter,
-    /// The finished-message binding of TLS 1.2 and below ([RFC 5929
-    /// section 3]).
-    ///
-    /// [RFC 5929 section 3]: https://www.rfc-editor.org/rfc/rfc5929#section-3
-    TlsUnique,
-    /// The server-certificate binding ([RFC 5929 section 4]), which
-    /// survives a terminating proxy holding the same certificate.
-    ///
-    /// [RFC 5929 section 4]: https://www.rfc-editor.org/rfc/rfc5929#section-4
-    TlsServerEndPoint,
-}
-
-impl SaslScramChannelBindingKind {
-    /// The binding name as registered with IANA and written in the GS2
-    /// header.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::TlsExporter => "tls-exporter",
-            Self::TlsUnique => "tls-unique",
-            Self::TlsServerEndPoint => "tls-server-end-point",
-        }
-    }
-}
-
 /// SCRAM credentials, shared by every profile since the profiles differ
 /// only in the digest they run the same exchange with.
 #[derive(Clone, Debug)]
@@ -199,7 +155,7 @@ pub struct SaslScramCreds {
     pub nonce: Vec<u8>,
     /// The channel binding, which picks between the profile's plain and
     /// `-PLUS` names.
-    pub channel_binding: SaslScramChannelBinding,
+    pub channel_binding: SaslGs2ChannelBinding,
 }
 
 /// A digest a SCRAM profile is built on, with the two names that
@@ -223,6 +179,7 @@ pub trait SaslScramDigest: EagerHash {
 /// [`crate::rfc7677::scram_sha_256::SaslScramSha256`] or
 /// [`crate::scram_sha_512::SaslScramSha512`].
 pub struct SaslScram<D> {
+    username: String,
     password: SecretString,
     client_nonce: String,
     client_first_bare: String,
@@ -245,34 +202,22 @@ impl<D: SaslScramDigest> SaslScram<D> {
     pub fn new(creds: SaslScramCreds) -> Self {
         let client_nonce = String::from_utf8_lossy(&creds.nonce).to_string();
 
-        let mut escaped = String::with_capacity(creds.username.len());
+        // NOTE: SCRAM sends no authorization identity of its own, so the
+        // header carries the flag and nothing else. The mechanism name
+        // follows the same choice, a bound exchange running under the
+        // -PLUS one.
+        let gs2_header = creds.channel_binding.header(None);
+        let cbind_input = creds.channel_binding.cbind_input(None);
 
-        for c in creds.username.chars() {
-            match c {
-                '=' => escaped.push_str("=3D"),
-                ',' => escaped.push_str("=2C"),
-                c => escaped.push(c),
-            }
-        }
-
-        let (gs2_header, mechanism) = match &creds.channel_binding {
-            SaslScramChannelBinding::Unsupported => ("n,,".to_string(), D::MECHANISM),
-            SaslScramChannelBinding::Unused => ("y,,".to_string(), D::MECHANISM),
-            SaslScramChannelBinding::Bound { kind, .. } => {
-                let kind = kind.as_str();
-                (format!("p={kind},,"), D::MECHANISM_PLUS)
-            }
+        let mechanism = match creds.channel_binding.is_bound() {
+            true => D::MECHANISM_PLUS,
+            false => D::MECHANISM,
         };
 
-        let mut cbind_input = gs2_header.clone().into_bytes();
-
-        if let SaslScramChannelBinding::Bound { data, .. } = &creds.channel_binding {
-            cbind_input.extend_from_slice(data);
-        }
-
         Self {
+            username: creds.username,
             password: creds.password,
-            client_first_bare: format!("n={escaped},r={client_nonce}"),
+            client_first_bare: String::new(),
             client_nonce,
             gs2_header,
             cbind_input: base64.encode(cbind_input),
@@ -396,6 +341,31 @@ impl<D: SaslScramDigest> SaslCoroutine for SaslScram<D> {
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
             (State::SendClientFirst, SaslArg::None) => {
+                // NOTE: RFC 5802 section 5.1 asks the client to prepare
+                // both, and the password reaches the key derivation, so
+                // preparing late would derive a key from bytes the
+                // server never stored.
+                #[cfg(feature = "saslprep")]
+                {
+                    let prepared = [self.username.as_str(), self.password.expose_secret()];
+
+                    let [username, password] = match prepared.map(saslprep) {
+                        [Ok(username), Ok(password)] => [username, password],
+                        prepared => {
+                            let err = prepared.into_iter().find_map(Result::err);
+                            let err = err.expect("one of the two failed to prepare");
+                            return SaslCoroutineState::Complete(Err(err.into()));
+                        }
+                    };
+
+                    self.username = username;
+                    self.password = SecretString::from(password);
+                }
+
+                let escaped = escape(&self.username);
+                let client_nonce = &self.client_nonce;
+                self.client_first_bare = format!("n={escaped},r={client_nonce}");
+
                 let gs2_header = &self.gs2_header;
                 let client_first_bare = &self.client_first_bare;
                 let client_first = format!("{gs2_header}{client_first_bare}");
@@ -468,7 +438,12 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, rfc5802::*, rfc7677::scram_sha_256::SaslScramSha256};
+    use crate::{
+        coroutine::*,
+        rfc5801::{SaslGs2ChannelBinding, SaslGs2ChannelBindingKind},
+        rfc5802::*,
+        rfc7677::scram_sha_256::SaslScramSha256,
+    };
 
     // NOTE: everything here is about the family rather than about a
     // profile, so it runs on SCRAM-SHA-256, whose exchange the RFC 7677
@@ -481,7 +456,7 @@ mod tests {
 
     #[test]
     fn peer_finished_before_verification_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
         let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
@@ -494,7 +469,7 @@ mod tests {
 
     #[test]
     fn server_nonce_not_extending_the_client_nonce_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
 
@@ -508,7 +483,7 @@ mod tests {
 
     #[test]
     fn tampered_server_signature_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
         let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
@@ -523,7 +498,7 @@ mod tests {
 
     #[test]
     fn server_error_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
         let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
@@ -539,11 +514,55 @@ mod tests {
         assert_eq!(reported, "invalid-proof");
     }
 
+    #[cfg(feature = "saslprep")]
+    #[test]
+    fn the_credentials_are_prepared_before_the_first_message() {
+        // NOTE: the username reaches the wire and the password reaches
+        // the key derivation, so preparing either late derives a key
+        // from bytes the server never stored.
+        let mut auth = SaslScramSha256::new(SaslScramCreds {
+            username: "u\u{00ad}ser".to_string(),
+            ..creds(SaslGs2ChannelBinding::Unsupported)
+        });
+
+        let client_first = respond(&mut auth, SaslArg::None);
+
+        assert_eq!(client_first, b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO");
+
+        // NOTE: the RFC 7677 exchange again, with a soft hyphen inside
+        // the password. Preparation removes it, so the proof is the
+        // published one: the vector is what says the derivation ran on
+        // prepared bytes rather than on what was typed.
+        let mut auth = SaslScramSha256::new(SaslScramCreds {
+            password: SecretString::from("pen\u{00ad}cil".to_string()),
+            ..creds(SaslGs2ChannelBinding::Unsupported)
+        });
+
+        let _ = respond(&mut auth, SaslArg::None);
+        let client_final = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
+
+        assert!(client_final.ends_with(b"p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ="));
+    }
+
+    #[cfg(feature = "saslprep")]
+    #[test]
+    fn a_credential_that_cannot_be_prepared_completes_err() {
+        let mut auth = SaslScramSha256::new(SaslScramCreds {
+            password: SecretString::from("pen\u{0007}cil".to_string()),
+            ..creds(SaslGs2ChannelBinding::Unsupported)
+        });
+
+        assert!(matches!(
+            auth.resume(SaslArg::None),
+            SaslCoroutineState::Complete(Err(SaslScramError::Preparation(_))),
+        ));
+    }
+
     #[test]
     fn username_separators_are_escaped() {
         let mut auth = SaslScramSha256::new(SaslScramCreds {
             username: "a=b,c".to_string(),
-            ..creds(SaslScramChannelBinding::Unsupported)
+            ..creds(SaslGs2ChannelBinding::Unsupported)
         });
 
         let client_first = respond(&mut auth, SaslArg::None);
@@ -558,7 +577,7 @@ mod tests {
         // server that does support channel binding notice that its
         // -PLUS name was stripped in flight. Sending n instead would
         // make the downgrade invisible.
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unused));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unused));
 
         let client_first = respond(&mut auth, SaslArg::None);
 
@@ -579,8 +598,8 @@ mod tests {
         // a tls-exporter binding of eight bytes: c= is the base64 of
         // "p=tls-exporter,," followed by that binding, and the proof
         // changes with it since c= is part of the signed message.
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Bound {
-            kind: SaslScramChannelBindingKind::TlsExporter,
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Bound {
+            kind: SaslGs2ChannelBindingKind::TlsExporter,
             data: (0..8).collect(),
         }));
 
@@ -626,7 +645,7 @@ mod tests {
         ];
 
         for (server_first, what) in missing {
-            let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+            let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
             let _ = respond(&mut auth, SaslArg::None);
 
@@ -642,7 +661,7 @@ mod tests {
 
     #[test]
     fn a_server_message_that_is_not_utf8_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
 
@@ -654,7 +673,7 @@ mod tests {
 
     #[test]
     fn a_server_final_message_carrying_neither_signature_nor_error_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
         let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
@@ -664,7 +683,7 @@ mod tests {
             SaslCoroutineState::Complete(Err(SaslScramError::InvalidServerFinal)),
         ));
 
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
         let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
@@ -677,7 +696,7 @@ mod tests {
 
     #[test]
     fn an_extra_challenge_after_the_exchange_completes_err() {
-        let mut auth = SaslScramSha256::new(creds(SaslScramChannelBinding::Unsupported));
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
 
         let _ = respond(&mut auth, SaslArg::None);
         let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
@@ -689,23 +708,7 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn every_binding_kind_spells_the_name_it_is_registered_under() {
-        let kinds = [
-            (SaslScramChannelBindingKind::TlsExporter, "tls-exporter"),
-            (SaslScramChannelBindingKind::TlsUnique, "tls-unique"),
-            (
-                SaslScramChannelBindingKind::TlsServerEndPoint,
-                "tls-server-end-point",
-            ),
-        ];
-
-        for (kind, name) in kinds {
-            assert_eq!(kind.as_str(), name, "{kind:?}");
-        }
-    }
-
-    fn creds(channel_binding: SaslScramChannelBinding) -> SaslScramCreds {
+    fn creds(channel_binding: SaslGs2ChannelBinding) -> SaslScramCreds {
         SaslScramCreds {
             username: "user".to_string(),
             password: SecretString::from("pencil".to_string()),
