@@ -1,4 +1,4 @@
-# 🔐 I/O SASL [![Documentation](https://img.shields.io/docsrs/io-sasl?style=flat&logo=docs.rs&logoColor=white)](https://docs.rs/io-sasl/latest/io_sasl) [![Matrix](https://img.shields.io/badge/chat-%23pimalaya-blue?style=flat&logo=matrix&logoColor=white)](https://matrix.to/#/#pimalaya:matrix.org) [![Mastodon](https://img.shields.io/badge/news-%40pimalaya-blue?style=flat&logo=mastodon&logoColor=white)](https://fosstodon.org/@pimalaya)
+# 🔐 I/O SASL [![Documentation](https://img.shields.io/docsrs/io-sasl?style=flat&logo=docs.rs&logoColor=white)](https://docs.rs/io-sasl/latest/io_sasl) [![Coverage](https://img.shields.io/codecov/c/github/pimalaya/io-sasl/master?style=flat&logo=codecov&logoColor=white)](https://codecov.io/gh/pimalaya/io-sasl) [![Matrix](https://img.shields.io/badge/chat-%23pimalaya-blue?style=flat&logo=matrix&logoColor=white)](https://matrix.to/#/#pimalaya:matrix.org) [![Mastodon](https://img.shields.io/badge/news-%40pimalaya-blue?style=flat&logo=mastodon&logoColor=white)](https://fosstodon.org/@pimalaya)
 
 Simple Authentication and Security Layer (SASL) client library for Rust
 
