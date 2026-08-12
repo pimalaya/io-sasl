@@ -1,0 +1,9 @@
+# Coverage configuration, read by cargo-tarpaulin from the repository
+# root.
+#
+# The fuzz targets are a separate cargo package that the coverage run
+# never builds. Tarpaulin still finds them by name, since a fuzz target
+# and an integration test may reasonably share one, and then reports
+# their lines as untested. The measured surface is the library.
+[default]
+exclude-files = ["fuzz/*"]

@@ -5,9 +5,65 @@ on:
 
 jobs:
   tests:
+    uses: pimalaya/nix/.github/workflows/tests.yml@master
+    secrets: inherit
+
+  no-default-features:
+    name: no scram
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --no-default-features
-      - run: cargo test --all-features
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v17
+        with:
+          name: soywod
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          extraPullNames: nix-community
+      - uses: Swatinem/rust-cache@v2
+      - run: nix develop -c cargo test --no-default-features
+
+  coverage:
+    name: coverage -> codecov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v17
+        with:
+          name: soywod
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          extraPullNames: nix-community
+      - uses: Swatinem/rust-cache@v2
+      - name: Measure coverage (cobertura.xml)
+        run: nix develop -c cargo tarpaulin --all-features --engine llvm --out Xml
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: cobertura.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  fuzz:
+    name: fuzz targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v17
+        with:
+          name: soywod
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          extraPullNames: nix-community
+      - uses: Swatinem/rust-cache@v2
+      - name: Loosen ASan shadow-memory ASLR for the libFuzzer runner
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Fuzz the mechanisms
+        run: nix-shell fuzz/shell.nix --run "cargo fuzz run exchange -- -max_total_time=30"
+      - name: Fuzz the SCRAM-SHA-256 acceptance oracle
+        run: nix-shell fuzz/shell.nix --run "cargo fuzz run scram -- -max_total_time=30"

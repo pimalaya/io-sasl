@@ -1,0 +1,39 @@
+[package]
+name = "io-sasl-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+io-sasl = { path = "..", features = ["scram"] }
+secrecy = "0.10"
+
+# The scram target recomputes the server signature itself, from the same
+# primitives RFC 5802 names, so that its oracle does not depend on the
+# state machine it is checking.
+base64 = "0.23"
+hmac = "0.13"
+pbkdf2 = { version = "0.13", features = ["hmac"] }
+sha2 = "0.11"
+
+[[bin]]
+name = "exchange"
+path = "fuzz_targets/exchange.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "scram"
+path = "fuzz_targets/scram.rs"
+test = false
+doc = false
+bench = false
+
+# Detach from the parent package so `cargo fuzz` builds this crate standalone.
+[workspace]

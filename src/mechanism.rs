@@ -199,3 +199,127 @@ pub struct SaslScramSha256 {
     /// [RFC 5802 section 5.1]: https://www.rfc-editor.org/rfc/rfc5802#section-5.1
     pub nonce: Vec<u8>,
 }
+
+#[cfg(test)]
+mod tests {
+    use alloc::{vec, vec::Vec};
+
+    use secrecy::SecretString;
+
+    use crate::mechanism::*;
+
+    #[test]
+    fn every_mechanism_spells_the_name_it_is_registered_under() {
+        let mut named = Vec::new();
+
+        for (mechanism, _, name) in vocabulary() {
+            assert_eq!(mechanism.as_str(), name, "{mechanism:?}");
+
+            assert!(
+                !named.contains(&name),
+                "{mechanism:?} answers to a name another mechanism already claims: {name}"
+            );
+
+            named.push(name);
+        }
+    }
+
+    #[test]
+    fn every_credential_type_converts_into_its_own_variant() {
+        let mut converted = Vec::new();
+
+        for (mechanism, sasl, _) in vocabulary() {
+            assert_eq!(variant(&sasl), mechanism, "{mechanism:?}");
+
+            assert!(
+                !converted.contains(&mechanism),
+                "{mechanism:?} shares its variant with another credential type"
+            );
+
+            converted.push(mechanism);
+        }
+    }
+
+    /// The whole vocabulary: every tag, the credentials converting into
+    /// it, and the name of the IANA SASL mechanism registry.
+    ///
+    /// One table walked twice rather than a test per mechanism, because
+    /// the mistake six near-identical arms actually make is not a
+    /// missing one, it is two of them landing on the same place, which
+    /// only a walk over all of them can see.
+    fn vocabulary() -> [(SaslMechanism, Sasl, &'static str); 6] {
+        [
+            (
+                SaslMechanism::Anonymous,
+                SaslAnonymous { message: None }.into(),
+                "ANONYMOUS",
+            ),
+            (
+                SaslMechanism::Login,
+                SaslLogin {
+                    username: "alice".into(),
+                    password: SecretString::from("pencil"),
+                }
+                .into(),
+                "LOGIN",
+            ),
+            (
+                SaslMechanism::Plain,
+                SaslPlain {
+                    authzid: None,
+                    authcid: "alice".into(),
+                    passwd: SecretString::from("pencil"),
+                }
+                .into(),
+                "PLAIN",
+            ),
+            (
+                SaslMechanism::OAuthBearer,
+                SaslOauthbearer {
+                    username: "alice@localhost".into(),
+                    host: "localhost".into(),
+                    port: 143,
+                    token: SecretString::from("vF9dft4qmT"),
+                }
+                .into(),
+                "OAUTHBEARER",
+            ),
+            (
+                SaslMechanism::XOAuth2,
+                SaslXoauth2 {
+                    username: "alice@localhost".into(),
+                    token: SecretString::from("vF9dft4qmT"),
+                }
+                .into(),
+                "XOAUTH2",
+            ),
+            (
+                SaslMechanism::ScramSha256,
+                SaslScramSha256 {
+                    username: "alice".into(),
+                    password: SecretString::from("pencil"),
+                    nonce: vec![],
+                }
+                .into(),
+                "SCRAM-SHA-256",
+            ),
+        ]
+    }
+
+    /// The tag of the variant a [`Sasl`] settled in.
+    ///
+    /// The match is what keeps the walk honest: a mechanism added to
+    /// the vocabulary stops this module from compiling until it is
+    /// given an arm, and the table above is the next thing the author
+    /// reads.
+    fn variant(sasl: &Sasl) -> SaslMechanism {
+        match sasl {
+            Sasl::Anonymous(_) => SaslMechanism::Anonymous,
+            Sasl::Login(_) => SaslMechanism::Login,
+            Sasl::Plain(_) => SaslMechanism::Plain,
+            Sasl::Oauthbearer(_) => SaslMechanism::OAuthBearer,
+            Sasl::Xoauth2(_) => SaslMechanism::XOAuth2,
+            Sasl::ScramSha256(_) => SaslMechanism::ScramSha256,
+        }
+    }
+}

@@ -58,7 +58,7 @@ The whole API is documented on [docs.rs](https://docs.rs/io-sasl/latest/io_sasl)
 
 ## Examples
 
-The crate ships no runnable example, since a mechanism only comes alive inside a protocol exchange: the unit tests drive each mechanism step by step, and the protocol libraries built on it show the real wiring.
+The crate ships no runnable example, since a mechanism only comes alive inside a protocol exchange: the unit tests drive each mechanism step by step, the integration tests under [tests](./tests) drive whole exchanges the way a protocol library drives them, and the protocol libraries built on it show the real wiring.
 
 ## License
 
