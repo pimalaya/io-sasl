@@ -12,6 +12,44 @@
 //! mechanism answers the JSON challenge with an empty payload and then
 //! fails with the JSON the server sent.
 //!
+//! # Example
+//!
+//! ```rust
+//! use io_sasl::{
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     mechanism::SaslXoauth2,
+//!     xoauth2::SaslAuthXoauth2,
+//! };
+//! use secrecy::SecretString;
+//!
+//! let mut auth = SaslAuthXoauth2::new(SaslXoauth2 {
+//!     username: "someuser@example.com".into(),
+//!     token: SecretString::from("vF9dft4qmT"),
+//! });
+//!
+//! let state = auth.resume(SaslResume::Start);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//!     panic!("expected the token");
+//! };
+//!
+//! assert_eq!(
+//!     payload,
+//!     b"user=someuser@example.com\x01auth=Bearer vF9dft4qmT\x01\x01",
+//! );
+//!
+//! // The server accepted, so its success reply ends the exchange. Had
+//! // it refused, it would have sent a JSON error challenge first, which
+//! // the mechanism answers with an empty payload before failing.
+//! let state = auth.resume(SaslResume::PeerFinished);
+//!
+//! let SaslCoroutineState::Complete(result) = state else {
+//!     panic!("expected the exchange to end");
+//! };
+//!
+//! result.unwrap();
+//! ```
+//!
 //! [Google XOAUTH2]: https://developers.google.com/gmail/imap/xoauth2-protocol
 //! [RFC 7628]: https://www.rfc-editor.org/rfc/rfc7628
 

@@ -21,7 +21,10 @@ The closed vocabulary SHALL be walked whole rather than sampled one mechanism at
 Line coverage of the library SHALL stay at 100%, measured with cargo-tarpaulin over all features. Production code SHALL NOT be shaped to move the number: code no meaningful test can reach is deleted rather than covered. The fuzz package SHALL be excluded from the measured surface, which tarpaulin.toml does.
 
 ### Requirement: Fuzz targets
-The repository SHALL carry a cargo-fuzz package, unpublished and detached from the library's cargo workspace, holding at least two coverage-guided targets: one driving all six mechanisms with arbitrary credentials and arbitrary peer messages, in order and out of order, and one driving SCRAM-SHA-256 with arbitrary server messages.
+The repository SHALL carry a cargo-fuzz package, unpublished and detached from the library's cargo workspace, holding at least two coverage-guided targets: one driving all six mechanisms with arbitrary credentials and arbitrary peer messages, in order and out of order, and one driving SCRAM-SHA-256 with arbitrary server messages. The nightly toolchain and cargo-fuzz they need SHALL be exposed as the `fuzz` devShell of the repository flake, so a run inherits the nixpkgs and fenix pinned by flake.lock and needs no nixpkgs channel of its own.
+
+### Requirement: Documented exchanges
+Every mechanism module SHALL open with a runnable example driving its exchange step by step, compiled and run as a doctest. The example SHALL show the mechanism a consumer reaches for, not a fragment of it: what the protocol crate sends first, what it feeds back, and where the exchange ends, since driving that sequence correctly is the whole contract.
 
 ### Requirement: SCRAM acceptance oracle
 The SCRAM-SHA-256 target SHALL check acceptance against arithmetic performed outside the mechanism: it derives the salted password, the server key and the server signature itself, from the RFC 5802 primitives and from the messages it watched the mechanism send, and asserts that the mechanism neither acknowledges a server-final-message other than that one nor completes `Ok` without having verified one.

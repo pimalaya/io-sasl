@@ -5,6 +5,38 @@
 //! UTF-8 and at most 255 characters, and an absent token is sent as an
 //! empty response.
 //!
+//! # Example
+//!
+//! ```rust
+//! use io_sasl::{
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     mechanism::SaslAnonymous,
+//!     rfc4505::anonymous::SaslAuthAnonymous,
+//! };
+//!
+//! let mut auth = SaslAuthAnonymous::new(SaslAnonymous {
+//!     message: Some("alice@localhost".into()),
+//! });
+//!
+//! let state = auth.resume(SaslResume::Start);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//!     panic!("expected the trace token");
+//! };
+//!
+//! assert_eq!(payload, b"alice@localhost");
+//!
+//! // The server accepted, so its success reply ends the exchange
+//! // without a further challenge.
+//! let state = auth.resume(SaslResume::PeerFinished);
+//!
+//! let SaslCoroutineState::Complete(result) = state else {
+//!     panic!("expected the exchange to end");
+//! };
+//!
+//! result.unwrap();
+//! ```
+//!
 //! [RFC 4505]: https://www.rfc-editor.org/rfc/rfc4505
 
 use log::debug;

@@ -6,17 +6,17 @@ The `exchange` target drives all six mechanisms with fuzzed credentials and a fu
 
 The `scram` target is the security oracle, and the reason this crate exists. It drives SCRAM-SHA-256 with fuzzed server messages and checks two things: the mechanism never panics, and it never reports success unless it was fed a server-final-message whose signature is the one RFC 5802 computes. The target derives the salted password, the server key and the server signature itself, from the primitives the RFC names and from the bytes it watched the mechanism send, so acceptance is checked against an answer computed outside the state machine being checked. That is exactly the invariant the two implementations io-sasl replaces both got wrong, one verifying only when the reply happened to parse, the other taking a tagged OK carrying the server-final-message as success on its own.
 
-cargo-fuzz needs a nightly toolchain (for the `-Z` sanitizer flags). On NixOS, get both from the dedicated `fuzz/shell.nix` (nightly via fenix plus cargo-fuzz, no rustup or nix-ld needed):
+cargo-fuzz needs a nightly toolchain (for the `-Z` sanitizer flags). The `fuzz` devShell of the repository flake carries both, nightly via fenix plus cargo-fuzz, so no rustup and no nix-ld shim are needed:
 
 ```sh
-nix-shell fuzz/shell.nix --run "cargo fuzz run exchange"
-nix-shell fuzz/shell.nix --run "cargo fuzz run scram"
+nix develop .#fuzz --command cargo fuzz run exchange
+nix develop .#fuzz --command cargo fuzz run scram
 ```
 
-Bound a run with the libFuzzer flags, which come after the `--` separator:
+Bound a run with the libFuzzer flags, which come after the `--` separator, and which nix would otherwise read as its own:
 
 ```sh
-nix-shell fuzz/shell.nix --run "cargo fuzz run scram -- -max_total_time=60"
+nix develop .#fuzz --command bash -c "cargo fuzz run scram -- -max_total_time=60"
 ```
 
 libFuzzer saves every interesting new input into `fuzz/corpus/<target>/` (gitignored), and any crash into `fuzz/artifacts/<target>/`, from where it is replayed with `cargo fuzz run <target> fuzz/artifacts/<target>/<file>`.

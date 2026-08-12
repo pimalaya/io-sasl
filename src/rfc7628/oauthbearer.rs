@@ -13,6 +13,52 @@
 //! section 3.2.3]). The mechanism answers that challenge, then fails
 //! with the JSON the server sent.
 //!
+//! # Example
+//!
+//! ```rust
+//! use io_sasl::{
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     mechanism::SaslOauthbearer,
+//!     rfc7628::oauthbearer::{SaslAuthOauthbearer, SaslAuthOauthbearerError},
+//! };
+//! use secrecy::SecretString;
+//!
+//! let mut auth = SaslAuthOauthbearer::new(SaslOauthbearer {
+//!     username: "user@example.com".into(),
+//!     host: "server.example.com".into(),
+//!     port: 143,
+//!     token: SecretString::from("expired"),
+//! });
+//!
+//! let state = auth.resume(SaslResume::Start);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//!     panic!("expected the token");
+//! };
+//!
+//! assert!(payload.starts_with(b"n,a=user@example.com,\x01host="));
+//!
+//! // The server refused the token and describes why in a JSON
+//! // challenge, which the mechanism acknowledges with a single %x01 so
+//! // the server can end the exchange.
+//! let state = auth.resume(SaslResume::Challenge(br#"{"status":"401"}"#));
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(ack)) = state else {
+//!     panic!("expected the error acknowledgement");
+//! };
+//!
+//! assert_eq!(ack, [0x01]);
+//!
+//! // Only now does the exchange end, and the failure carries the JSON.
+//! let state = auth.resume(SaslResume::PeerFinished);
+//!
+//! let SaslCoroutineState::Complete(Err(err)) = state else {
+//!     panic!("expected the refused token to fail");
+//! };
+//!
+//! assert!(matches!(err, SaslAuthOauthbearerError::Rejected(_)));
+//! ```
+//!
 //! [RFC 7628]: https://www.rfc-editor.org/rfc/rfc7628
 //! [RFC 7628 section 3.1]: https://www.rfc-editor.org/rfc/rfc7628#section-3.1
 //! [RFC 7628 section 3.2.3]: https://www.rfc-editor.org/rfc/rfc7628#section-3.2.3

@@ -24,6 +24,8 @@ cargo build --all-features         # everything, SCRAM-SHA-256 included
 
 Three layers, each answering a different question. The unit tests next to each mechanism pin its payloads against its own specification, and the ones in the vocabulary module walk the routing between its two closed sets, every tag against the name it is registered under and every credential struct against the variant it converts into, as one table rather than six cases, since what six near-identical arms get wrong is two of them landing on the same place. tests/exchange.rs drives whole exchanges through the public API and states its assertions as properties over all six mechanisms at once, so a seventh one getting an edge of the contract wrong fails there rather than inside a protocol crate. tests/coverage.rs holds the one claim no single module can make: that each coroutine answers with the tag of the module it lives in, which is the name that ends up on the wire.
 
+The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it.
+
 Run both feature shapes, since the reduced one compiles a different set of mechanisms:
 
 ```sh
@@ -44,6 +46,13 @@ tarpaulin.toml keeps the fuzz targets out of the measured surface: they are a se
 ## Fuzzing
 
 Two coverage-guided targets under [fuzz/](./fuzz), described in [fuzz/README.md](./fuzz/README.md): one driving all six mechanisms with arbitrary peer messages, one driving SCRAM-SHA-256 against a server signature the harness derives itself, so that accepting an exchange is checked against arithmetic done outside the state machine doing the accepting. Any change to the SCRAM message assembly or key derivation is worth a fuzz run.
+
+They need the nightly toolchain cargo-fuzz builds against, which the `fuzz` devShell of the flake carries, unlike the default one:
+
+```sh
+nix develop .#fuzz --command cargo fuzz run exchange
+nix develop .#fuzz --command cargo fuzz run scram
+```
 
 ## Where a mechanism ends
 

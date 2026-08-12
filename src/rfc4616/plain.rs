@@ -5,6 +5,44 @@
 //! starts with a NUL. The password travels in the clear, which is why
 //! the mechanism belongs on a TLS-protected connection only.
 //!
+//! # Example
+//!
+//! ```rust
+//! use io_sasl::{
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     mechanism::SaslPlain,
+//!     rfc4616::plain::SaslAuthPlain,
+//! };
+//! use secrecy::SecretString;
+//!
+//! let mut auth = SaslAuthPlain::new(SaslPlain {
+//!     authzid: None,
+//!     authcid: "alice".into(),
+//!     passwd: SecretString::from("pencil"),
+//! });
+//!
+//! // The protocol crate base64-encodes the payload and writes it as
+//! // its authentication command, inline as an initial response or as
+//! // the answer to the first continuation request.
+//! let state = auth.resume(SaslResume::Start);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(payload)) = state else {
+//!     panic!("expected the credentials");
+//! };
+//!
+//! assert_eq!(payload, b"\0alice\0pencil");
+//!
+//! // The server accepted, so its success reply ends the exchange
+//! // without a further challenge.
+//! let state = auth.resume(SaslResume::PeerFinished);
+//!
+//! let SaslCoroutineState::Complete(result) = state else {
+//!     panic!("expected the exchange to end");
+//! };
+//!
+//! result.unwrap();
+//! ```
+//!
 //! [RFC 4616]: https://www.rfc-editor.org/rfc/rfc4616
 
 use alloc::vec::Vec;

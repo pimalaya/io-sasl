@@ -14,6 +14,48 @@
 //! response the mechanism already produced on
 //! [`SaslResume::Start`].
 //!
+//! # Example
+//!
+//! ```rust
+//! use io_sasl::{
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     login::SaslAuthLogin,
+//!     mechanism::SaslLogin,
+//! };
+//! use secrecy::SecretString;
+//!
+//! let mut auth = SaslAuthLogin::new(SaslLogin {
+//!     username: "alice".into(),
+//!     password: SecretString::from("pencil"),
+//! });
+//!
+//! let state = auth.resume(SaslResume::Start);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(user)) = state else {
+//!     panic!("expected the username");
+//! };
+//!
+//! assert_eq!(user, b"alice");
+//!
+//! // The server prompts for the password. The prompt is human-readable
+//! // filler the mechanism ignores, the step alone being what matters.
+//! let state = auth.resume(SaslResume::Challenge(b"Password:"));
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(pass)) = state else {
+//!     panic!("expected the password");
+//! };
+//!
+//! assert_eq!(pass, b"pencil");
+//!
+//! let state = auth.resume(SaslResume::PeerFinished);
+//!
+//! let SaslCoroutineState::Complete(result) = state else {
+//!     panic!("expected the exchange to end");
+//! };
+//!
+//! result.unwrap();
+//! ```
+//!
 //! [draft-murchison-sasl-login]: https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00
 //! [RFC 4959]: https://www.rfc-editor.org/rfc/rfc4959
 

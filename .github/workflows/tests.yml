@@ -64,6 +64,6 @@ jobs:
       - name: Loosen ASan shadow-memory ASLR for the libFuzzer runner
         run: sudo sysctl -w vm.mmap_rnd_bits=28
       - name: Fuzz the mechanisms
-        run: nix-shell fuzz/shell.nix --run "cargo fuzz run exchange -- -max_total_time=30"
+        run: nix develop .#fuzz --command bash -c "cargo fuzz run exchange -- -max_total_time=30"
       - name: Fuzz the SCRAM-SHA-256 acceptance oracle
-        run: nix-shell fuzz/shell.nix --run "cargo fuzz run scram -- -max_total_time=30"
+        run: nix develop .#fuzz --command bash -c "cargo fuzz run scram -- -max_total_time=30"

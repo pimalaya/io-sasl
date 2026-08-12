@@ -25,6 +25,71 @@
 //! feeds that message as a challenge and then drops the empty response
 //! rather than writing it.
 //!
+//! # Example
+//!
+//! The exchange published in [RFC 7677 section 3], for the user `user`
+//! with the password `pencil`. A real client draws its nonce from a
+//! cryptographic source instead of hard-coding one.
+//!
+//! ```rust
+//! use io_sasl::{
+//!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslResume, SaslYield},
+//!     mechanism::SaslScramSha256,
+//!     rfc7677::scram_sha_256::SaslAuthScramSha256,
+//! };
+//! use secrecy::SecretString;
+//!
+//! let mut auth = SaslAuthScramSha256::new(SaslScramSha256 {
+//!     username: "user".into(),
+//!     password: SecretString::from("pencil"),
+//!     nonce: b"rOprNGfwEbeRWgbNEkqO".to_vec(),
+//! });
+//!
+//! let state = auth.resume(SaslResume::Start);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(first)) = state else {
+//!     panic!("expected the client-first-message");
+//! };
+//!
+//! assert_eq!(first, b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO");
+//!
+//! // The server extends the nonce and names its salt and iteration
+//! // count; the mechanism answers with the proof it knows the password.
+//! let server_first = SaslResume::Challenge(
+//!     b"r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
+//! );
+//!
+//! let state = auth.resume(server_first);
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(proof)) = state else {
+//!     panic!("expected the client-final-message");
+//! };
+//!
+//! assert!(proof.starts_with(b"c=biws,r=rOprNGfwEbeRWgbNEkqO"));
+//!
+//! // The server proves itself in return. Feeding this message back is
+//! // what mutual authentication rests on: ending the exchange here
+//! // instead would complete with ServerSignatureNotVerified.
+//! let signature = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
+//!
+//! let state = auth.resume(SaslResume::Challenge(signature));
+//!
+//! let SaslCoroutineState::Yielded(SaslYield::Respond(ack)) = state else {
+//!     panic!("expected the server-final-message to verify");
+//! };
+//!
+//! assert!(ack.is_empty());
+//!
+//! let state = auth.resume(SaslResume::PeerFinished);
+//!
+//! let SaslCoroutineState::Complete(result) = state else {
+//!     panic!("expected the exchange to end");
+//! };
+//!
+//! result.unwrap();
+//! ```
+//!
+//! [RFC 7677 section 3]: https://www.rfc-editor.org/rfc/rfc7677#section-3
 //! [RFC 7677]: https://www.rfc-editor.org/rfc/rfc7677
 //! [RFC 5802]: https://www.rfc-editor.org/rfc/rfc5802
 

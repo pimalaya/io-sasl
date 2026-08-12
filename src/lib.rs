@@ -39,6 +39,10 @@
 //! - [`login`], the LOGIN mechanism (draft-murchison-sasl-login)
 //! - [`xoauth2`], the XOAUTH2 mechanism (Google, pre-standard)
 //!
+//! Each mechanism module opens with a runnable example driving its
+//! exchange step by step, which is the shortest description of what a
+//! protocol crate has to do with it.
+//!
 //! [`coroutine`] holds the contract spanning them, and [`mechanism`]
 //! the vocabulary: [`mechanism::SaslMechanism`] tags a mechanism,
 //! [`mechanism::Sasl`] carries the credentials of one, and the six

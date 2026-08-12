@@ -54,11 +54,11 @@ The two remaining mechanisms were never standardised: LOGIN follows [draft-murch
 
 ## Usage
 
-The whole API is documented on [docs.rs](https://docs.rs/io-sasl/latest/io_sasl), starting with the crate header describing how a mechanism is driven and where the boundary with the protocol library sits.
+The whole API is documented on [docs.rs](https://docs.rs/io-sasl/latest/io_sasl), including a runnable snippet for every mechanism, and starting with the crate header describing how a mechanism is driven and where the boundary with the protocol library sits.
 
 ## Examples
 
-The crate ships no runnable example, since a mechanism only comes alive inside a protocol exchange: the unit tests drive each mechanism step by step, the integration tests under [tests](./tests) drive whole exchanges the way a protocol library drives them, and the protocol libraries built on it show the real wiring.
+The crate ships no examples folder, since a mechanism only comes alive inside a protocol exchange: every mechanism module opens with a runnable snippet driving its own exchange, the integration tests under [tests](./tests) drive whole exchanges the way a protocol library drives them, and the protocol libraries built on it show the real wiring.
 
 ## License
 
