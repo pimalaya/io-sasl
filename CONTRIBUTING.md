@@ -19,17 +19,9 @@ This is a local exception, not a rule change. A new mechanism follows it; anythi
 
 Everything else follows io-imap, since the two crates are read together. A yield names what the caller is asked to do (`WantsWrite`, `WantsRead`), and a mechanism's private state enum names what its next resume is about to do (`SendUsername`, `SendPassword`, `Done`), never what the previous one did.
 
-## The command surface
-
-One module per flavour: src/client/std.rs carries the blocking `SaslClient`, src/client/async.rs its twin `SaslClientAsync`, and src/client/mod.rs holds what is true of both. A driver is one flavour or the other, so nothing is shared between the two files but the shape.
-
-They are written out rather than generated from one list of delegations, which is where they part from io-imap's `imap_client_commands!`. Each body is a single call, the surface is read far more often than it is edited, and the drift a macro would rule out is caught instead by the two files being twins: a mechanism added to one and not to the other shows up in the diff that adds it, and the sweep in the tests fails. Add a mechanism to both in the same change, keeping the method names, the argument names and the doc comments identical, so the only difference between the two bodies stays the future. Methods sit in `Sasl` variant order rather than alphabetically, so the dispatcher that will match on that enum reads arm by arm against them.
-
 ## Feature matrix
 
-Almost every feature exists because it pulls a crate in, which is the usual justification for one.
-
-`client` is the exception, and it is not the client layer the name usually means: the crate still opens no connection, and what it gates is two traits whose implementation brings the transport. It pulls nothing, so what it buys is a surface a consumer driving the coroutines itself can leave out rather than a dependency it avoids. One feature covers the blocking and the async flavour together, since splitting them would save nothing but a trait definition.
+The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Every feature exists because it pulls a crate in, which is the only justification for one.
 
 `scram` pulls the HMAC, PBKDF2, SHA-2 and base64 crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `saslprep` pulls the Unicode normalization the credential preparation needs. Both are in the default set, the first because SCRAM is what most servers offer and the second because it is correctness rather than a mechanism.
 
@@ -39,7 +31,7 @@ Build the three shapes that differ:
 
 ```sh
 cargo build --no-default-features  # the mechanisms needing no extra crate
-cargo build                        # the command surface, the SCRAM SHA-2 profiles and SASLprep
+cargo build                        # the SCRAM SHA-2 profiles and SASLprep
 cargo build --all-features         # the legacy mechanisms too
 ```
 
@@ -47,11 +39,9 @@ cargo build --all-features         # the legacy mechanisms too
 
 Three layers, each answering a different question. The unit tests next to each mechanism pin its payloads against its own specification, those in the SCRAM family module pin what the profiles share, and those in the vocabulary module walk the routing between its two closed sets, every tag against the name it is registered under and every credential struct against the variant it lands in, as one table rather than a case per mechanism, since what a dozen near-identical arms get wrong is two of them landing on the same place. tests/exchange.rs drives whole exchanges through the public API and states its assertions as properties over the whole mechanism set at once, so one added later getting an edge of the contract wrong fails there rather than inside a protocol crate. tests/coverage.rs holds the one claim no single module can make: that each coroutine answers with the tag of the module it lives in, which is the name that ends up on the wire, and for SCRAM that it answers with the `-PLUS` one exactly when a binding is in play.
 
-tests/client.rs and tests/client_async.rs cover the layer above, each implementing its trait the way a protocol crate does and stating what the surface rests on: a default body runs the whole exchange, and both a mechanism failure and the driver's own reach the caller through the one error type the driver already had. Each then sweeps all twelve methods, asserting that every one reaches the mechanism it is named after, which is the vocabulary sweep's argument applied one layer up: what a dozen near-identical one-line bodies get wrong is two of them landing on the same coroutine. The async file adds the claim that only a compiler can make, that the futures the default bodies return are `Send` and can therefore be spawned; it would stop compiling if the explicit return type or the `Send` supertrait were dropped.
+The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it.
 
-The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it. Each command surface trait opens with one too, implementing it end to end.
-
-Run the three shapes, since each compiles a different surface:
+Run the three shapes, since each compiles a different set of mechanisms:
 
 ```sh
 cargo test --no-default-features

@@ -13,10 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A `mechanism()` method naming the mechanism on the wire, and a `resume(SaslArg)` method returning `SaslCoroutineState<SaslYield, Result<(), Error>>`. `SaslArg` is three-cased (`None`, `Input`, `Done`) so that the end of an exchange stays distinguishable from a message, and `SaslYield` is either `WantsWrite(Vec<u8>)` or `WantsRead` for a server-first mechanism. `Input` is named for its role rather than its origin: the peer's challenge for a mechanism computing its own payloads, the output of the caller's security context for a relay.
 
-- Added the command surface: `client::std::SaslClient` and `client::r#async::SaslClientAsync`, behind the `client` cargo feature, enabled by default.
-
-  Each requires one `run` method, the loop every protocol crate writes around a mechanism, and gives one method per mechanism back, twelve of them. Neither trait names a stream: the implementation brings its own transport and borrows it for the exchange, so the crate still opens nothing and the feature pulls no dependency in. The failure type is the implementation's own, so its framing errors and the mechanism's travel one channel, and each method asks only for the `From` conversion it needs. The async futures are declared `Send`, which an `async fn` in a trait cannot promise, so they can be spawned.
-
 - Added the SASL vocabulary, moved from `pimalaya-stream`.
 
   `SaslMechanism` tags a mechanism and knows its wire name, listing every mechanism whatever the build enables, since a consumer reading a server capability list has to name the ones it cannot run. `Sasl` pairs a tag with the credentials of one, and each credential struct lives in the module of the mechanism that transmits it, next to its coroutine. The three SCRAM profiles share `SaslScramCreds`, differing only in their digest.

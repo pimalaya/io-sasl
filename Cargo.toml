@@ -17,8 +17,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["client", "saslprep", "scram"]
-client = []
+default = ["saslprep", "scram"]
 cram-md5 = ["dep:hmac", "dep:md-5"]
 saslprep = ["dep:unicode-normalization"]
 scram = ["dep:base64", "dep:hmac", "dep:pbkdf2", "dep:sha2"]

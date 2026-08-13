@@ -2,12 +2,11 @@
 
 Simple Authentication and Security Layer (SASL) client library for Rust
 
-This library is composed of two layers:
+This library is composed of a single layer:
 
 - Low-level **I/O-free** coroutines: no_std-compatible state machines containing the whole SASL mechanism logic, usable anywhere
-- High-level **command surface**: two traits, blocking and async, turning one authentication loop into one method per mechanism
 
-Neither layer performs I/O of any kind: the library computes what a mechanism sends and checks what it receives, while the protocol library driving it (I/O IMAP, I/O SMTP, ...) owns the socket, the framing and the transport-level base64. The command surface is that protocol library's own loop, written once and borrowing the transport it already has, rather than a client this one could open a connection with.
+There is no client layer, because the crate performs no I/O of any kind: it computes what a mechanism sends and checks what it receives, while the protocol library driving it (I/O IMAP, I/O SMTP, ...) owns the socket, the framing and the transport-level base64.
 
 ## Table of contents
 
@@ -29,14 +28,13 @@ Neither layer performs I/O of any kind: the library computes what a mechanism se
 - **Credentials prepared the way the specifications ask**: PLAIN and SCRAM run their username and password through SASLprep, so a password with a non-breaking space or a decomposed accent matches what the server stored instead of failing as a wrong password.
 - **Channel binding**: every SCRAM profile also speaks its `-PLUS` name, which ties the exchange to the TLS connection it runs on and is what stops a machine in the middle from replaying it.
 - **Downgrade detection**: a client that supports channel binding says so even when the server offered no `-PLUS` name, so a server that does support it sees the stripped offer and stops.
-- **One loop instead of one per mechanism**: implement a single `run` method over your own transport and every mechanism arrives as a method, blocking or async, with the async futures declared `Send` so they can be spawned.
 - **Shared vocabulary**: one set of credential types describing what each mechanism needs, shared by every protocol library and by the account wizards that prompt for them.
 - **Mutual authentication that cannot be skipped**: an exchange ending before SCRAM verified the server signature fails instead of quietly succeeding.
 - **Caller-owned randomness**: the SCRAM client nonce and channel binding are supplied with the credentials, so entropy and TLS stay decisions of the application and the exchange is reproducible in tests.
 - **Credential redaction**: passwords and tokens stay inside secret wrappers and never reach the logs.
 
 > [!TIP]
-> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) for everything that pulls in an extra crate: `scram` for the SHA-2 profiles and `saslprep` for the credential preparation, both enabled by default, `scram-sha-1` for the legacy SCRAM profile and `cram-md5` for the legacy digest mechanism, both off unless a server asks for them. The command surface is the exception: `client` gates two traits rather than a dependency, and is enabled by default, since a consumer driving the coroutines itself is the rarer case. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
+> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) for everything that pulls in an extra crate: `scram` for the SHA-2 profiles and `saslprep` for the credential preparation, both enabled by default, `scram-sha-1` for the legacy SCRAM profile and `cram-md5` for the legacy digest mechanism, both off unless a server asks for them. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
 
 ## RFC coverage
 
@@ -80,7 +78,7 @@ The whole API is documented on [docs.rs](https://docs.rs/io-sasl/latest/io_sasl)
 
 ## Examples
 
-The crate ships no examples folder, since a mechanism only comes alive inside a protocol exchange: every mechanism module opens with a runnable snippet driving its own exchange, each command surface trait opens with one implementing it over a borrowed transport, the integration tests under [tests](./tests) drive whole exchanges the way a protocol library drives them, and the protocol libraries built on it show the real wiring.
+The crate ships no examples folder, since a mechanism only comes alive inside a protocol exchange: every mechanism module opens with a runnable snippet driving its own exchange, the integration tests under [tests](./tests) drive whole exchanges the way a protocol library drives them, and the protocol libraries built on it show the real wiring.
 
 ## License
 

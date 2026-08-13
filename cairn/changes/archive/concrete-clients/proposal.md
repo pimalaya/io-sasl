@@ -1,7 +1,7 @@
 ---
 cairn: change
 id: concrete-clients
-status: active
+status: rejected
 created: 2026-08-13
 ---
 

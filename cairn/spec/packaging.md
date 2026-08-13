@@ -9,12 +9,10 @@ status: current
 The crate is published as io-sasl, the I/O-free SASL layer every Pimalaya protocol crate authenticates through.
 
 ### Requirement: no_std
-`#![no_std]` SHALL be unconditional and `extern crate alloc` SHALL be declared, since the crate allocates. The crate SHALL stay alloc-only: no `extern crate std` and no I/O. The command surface is no exception, naming no stream and leaving the transport to whoever implements it, so the `client` cargo feature gating it names a surface rather than a client this crate could connect with.
+`#![no_std]` SHALL be unconditional and `extern crate alloc` SHALL be declared, since the crate allocates. The crate SHALL stay alloc-only: no `extern crate std`, no client layer, no I/O.
 
 ### Requirement: Dependencies
 The vocabulary and the mechanisms needing no cryptography SHALL depend only on `secrecy`, `log` and `thiserror`. `base64`, `hmac`, `pbkdf2` and `sha2` SHALL be optional and pulled by the `scram` feature, `sha1` by `scram-sha-1`, `md-5` by `cram-md5`, and `unicode-normalization` by `saslprep`. A random number generator SHALL NOT be a dependency, and neither SHALL a TLS implementation or a Kerberos one.
-
-The `client` feature SHALL pull nothing, gating a surface rather than a dependency, and SHALL cover both flavours of it at once, splitting them saving nothing but a trait definition. It SHALL be enabled by default, a consumer driving the coroutines itself being the rarer case.
 
 ### Requirement: Public surface
 There SHALL be no re-export at the crate root: consumers reach items through module-qualified paths. Every public item SHALL be documented, enforced by `#![deny(missing_docs)]`.
