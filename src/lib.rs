@@ -123,6 +123,26 @@
 //! CRAM-MD5 is and nothing else here: the protocol then has no initial
 //! response to inline and sends its command bare.
 //!
+//! ## The command surface
+//!
+//! Driving a mechanism is the same loop for every one of them, and the
+//! `client` module holds it, one submodule per flavour: `client::std`
+//! carries the blocking `SaslClient`, `client::r#async` its twin
+//! `SaslClientAsync`. Each requires one `run` method, the loop itself,
+//! and gives back one method per mechanism. A protocol crate writes its
+//! framing once instead of once per mechanism, which is where its six
+//! or twelve near-identical authentication paths go.
+//!
+//! Both sit behind the `client` cargo feature, on by default, so a
+//! consumer driving the mechanisms itself compiles neither. One feature
+//! covers both flavours, since neither pulls a dependency in and there
+//! is nothing to save by leaving the other out. Neither adds I/O
+//! either: the implementation brings its own transport, borrowing it
+//! for the exchange, so nothing in either trait names a stream and this
+//! crate still opens nothing. The failure type is the implementation's
+//! for the same reason, it being what holds the framing errors this
+//! crate has no vocabulary for.
+//!
 //! ## Boundaries
 //!
 //! Errors split by whose rule was broken. A mechanism failure lives
@@ -175,6 +195,9 @@
 
 extern crate alloc;
 
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
+pub mod client;
 pub mod coroutine;
 pub mod login;
 pub mod mechanism;
