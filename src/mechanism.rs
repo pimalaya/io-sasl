@@ -139,6 +139,48 @@ pub enum Sasl {
     ScramSha512(SaslScramCreds),
 }
 
+impl Sasl {
+    /// The tag of the mechanism these credentials describe.
+    ///
+    /// A profile registered under two names reports the one its
+    /// channel binding puts it under, the same name its coroutine
+    /// announces, so that a protocol crate deciding what to frame and a
+    /// protocol crate framing it cannot disagree.
+    pub fn mechanism(&self) -> SaslMechanism {
+        match self {
+            Self::Anonymous(_) => SaslMechanism::Anonymous,
+            #[cfg(feature = "cram-md5")]
+            Self::CramMd5(_) => SaslMechanism::CramMd5,
+            Self::External(_) => SaslMechanism::External,
+            Self::Gssapi(_) => SaslMechanism::Gssapi,
+            Self::Gs2Krb5(creds) if creds.channel_binding.is_bound() => SaslMechanism::Gs2Krb5Plus,
+            Self::Gs2Krb5(_) => SaslMechanism::Gs2Krb5,
+            Self::Login(_) => SaslMechanism::Login,
+            Self::Plain(_) => SaslMechanism::Plain,
+            Self::Oauthbearer(_) => SaslMechanism::OAuthBearer,
+            Self::Xoauth2(_) => SaslMechanism::XOAuth2,
+            #[cfg(feature = "scram-sha-1")]
+            Self::ScramSha1(creds) if creds.channel_binding.is_bound() => {
+                SaslMechanism::ScramSha1Plus
+            }
+            #[cfg(feature = "scram-sha-1")]
+            Self::ScramSha1(_) => SaslMechanism::ScramSha1,
+            #[cfg(feature = "scram")]
+            Self::ScramSha256(creds) if creds.channel_binding.is_bound() => {
+                SaslMechanism::ScramSha256Plus
+            }
+            #[cfg(feature = "scram")]
+            Self::ScramSha256(_) => SaslMechanism::ScramSha256,
+            #[cfg(feature = "scram")]
+            Self::ScramSha512(creds) if creds.channel_binding.is_bound() => {
+                SaslMechanism::ScramSha512Plus
+            }
+            #[cfg(feature = "scram")]
+            Self::ScramSha512(_) => SaslMechanism::ScramSha512,
+        }
+    }
+}
+
 impl From<SaslAnonymousCreds> for Sasl {
     fn from(sasl: SaslAnonymousCreds) -> Self {
         Self::Anonymous(sasl)
