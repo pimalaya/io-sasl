@@ -27,10 +27,10 @@ scram-sha-1 = ["scram", "dep:sha1"]
 base64 = { version = "0.23", default-features = false, features = ["alloc"], optional = true }
 hmac = { version = "0.13", default-features = false, optional = true }
 log = { version = "0.4", default-features = false }
-md-5 = { version = "0.11.0", default-features = false, optional = true }
+md-5 = { version = "0.11", default-features = false, optional = true }
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"], optional = true }
 secrecy = { version = "0.10", default-features = false }
 sha1 = { version = "0.11", default-features = false, optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
 thiserror = { version = "2", default-features = false }
-unicode-normalization = { version = "0.1.25", default-features = false, optional = true }
+unicode-normalization = { version = "0.1", default-features = false, optional = true }

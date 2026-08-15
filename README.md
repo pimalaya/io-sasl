@@ -1,4 +1,4 @@
-# 🔐 I/O SASL [![Documentation](https://img.shields.io/docsrs/io-sasl?style=flat&logo=docs.rs&logoColor=white)](https://docs.rs/io-sasl/latest/io_sasl) [![Coverage](https://img.shields.io/codecov/c/github/pimalaya/io-sasl/master?style=flat&logo=codecov&logoColor=white)](https://codecov.io/gh/pimalaya/io-sasl) [![Matrix](https://img.shields.io/badge/chat-%23pimalaya-blue?style=flat&logo=matrix&logoColor=white)](https://matrix.to/#/#pimalaya:matrix.org) [![Mastodon](https://img.shields.io/badge/news-%40pimalaya-blue?style=flat&logo=mastodon&logoColor=white)](https://fosstodon.org/@pimalaya)
+# 🔐 I/O SASL [![Documentation](https://img.shields.io/docsrs/io-sasl?style=flat&logo=docs.rs&logoColor=white)](https://docs.rs/io-sasl/latest/io_sasl) [![Coverage](https://img.shields.io/codecov/c/github/pimalaya/io-sasl/master?style=flat&logo=codecov&logoColor=white)](https://codecov.io/gh/pimalaya/io-sasl) [![Matrix](https://img.shields.io/badge/chat-%23pimalaya-blue?style=flat&logo=matrix&logoColor=white)](https://matrix.to/#/#pimalaya:matrix.org) [![Mastodon](https://img.shields.io/badge/news-%40pimalaya-blue?style=flat&logo=mastodon&logoColor=white)](https://fosstodon.org/@pimalaya) [![Sponsor](https://img.shields.io/badge/sponsor-pink?style=flat&logo=github-sponsors&logoColor=white)](https://pimalaya.org/sponsor/)
 
 Simple Authentication and Security Layer (SASL) client library for Rust
 
@@ -6,7 +6,7 @@ This library is composed of a single layer:
 
 - Low-level **I/O-free** coroutines: no_std-compatible state machines containing the whole SASL mechanism logic, usable anywhere
 
-There is no client layer, because the crate performs no I/O of any kind: it computes what a mechanism sends and checks what it receives, while the protocol library driving it (I/O IMAP, I/O SMTP, ...) owns the socket, the framing and the transport-level base64.
+There is no client layer: the crate opens nothing. It computes what a mechanism sends and checks what it receives, while the protocol library driving it (I/O IMAP, I/O SMTP, ...) owns the socket, the framing and the transport base64.
 
 ## Table of contents
 
@@ -22,40 +22,40 @@ There is no client layer, because the crate performs no I/O of any kind: it comp
 
 ## Features
 
-- **I/O-free mechanisms**: no_std state machines with no sockets and no async runtime, resumable from any blocking, async or in-memory test harness.
-- **Every registered mechanism a mail client meets**: ANONYMOUS, CRAM-MD5, EXTERNAL, GSSAPI, GS2-KRB5, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles, each computing exactly the payloads its specification defines.
-- **Kerberos as a building block**: both Kerberos mechanisms are carried as relays, since their tokens come from an implementation that talks to a KDC. The library holds the exchange, the caller holds the security context, and GS2-KRB5 adds the channel binding the older one cannot have.
-- **Credentials prepared the way the specifications ask**: PLAIN and SCRAM run their username and password through SASLprep, so a password with a non-breaking space or a decomposed accent matches what the server stored instead of failing as a wrong password.
-- **Channel binding**: every SCRAM profile also speaks its `-PLUS` name, which ties the exchange to the TLS connection it runs on and is what stops a machine in the middle from replaying it.
-- **Downgrade detection**: a client that supports channel binding says so even when the server offered no `-PLUS` name, so a server that does support it sees the stripped offer and stops.
-- **Shared vocabulary**: one set of credential types describing what each mechanism needs, shared by every protocol library and by the account wizards that prompt for them.
-- **Mutual authentication that cannot be skipped**: an exchange ending before SCRAM verified the server signature fails instead of quietly succeeding.
-- **Caller-owned randomness**: the SCRAM client nonce and channel binding are supplied with the credentials, so entropy and TLS stay decisions of the application and the exchange is reproducible in tests.
+- **I/O-free mechanisms**: no_std state machines with no socket and no runtime, resumable from a blocking, async or in-memory caller.
+- **Every mechanism a mail client meets**: ANONYMOUS, CRAM-MD5, EXTERNAL, GSSAPI, GS2-KRB5, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2 and the three SCRAM profiles.
+- **Kerberos as a building block**: both Kerberos mechanisms are relayed, so the library holds the exchange and the caller holds the security context.
+- **Credentials prepared as the specifications ask**: PLAIN and SCRAM normalize the username and password, so an accent or a non-breaking space stops failing as a wrong password.
+- **Channel binding**: every SCRAM profile also speaks its `-PLUS` name, tying the exchange to the TLS connection it runs on.
+- **Downgrade detection**: a client supporting channel binding says so even when no `-PLUS` name was offered, so a stripped offer is visible to the server.
+- **Shared vocabulary**: one credential type per mechanism, shared by every protocol library and by the wizards prompting for them.
+- **Mutual authentication that cannot be skipped**: an exchange ending before SCRAM verified the server signature fails instead of succeeding.
+- **Caller-owned randomness**: the SCRAM nonce and the channel binding come with the credentials, so entropy and TLS stay the application's.
 - **Credential redaction**: passwords and tokens stay inside secret wrappers and never reach the logs.
 
 > [!TIP]
-> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) for everything that pulls in an extra crate: `scram` for the SHA-2 profiles and `saslprep` for the credential preparation, both enabled by default, `scram-sha-1` for the legacy SCRAM profile and `cram-md5` for the legacy digest mechanism, both off unless a server asks for them. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
+> I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) to gate the mechanisms pulling in a crypto crate. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).
 
 ## RFC coverage
 
 | RFC    | What is covered                                                                                                       |
 |--------|-----------------------------------------------------------------------------------------------------------------------|
-| [2195] | The CRAM-MD5 mechanism: the keyed digest answering a server challenge, and the only server-first exchange here                |
-| [4013] | SASLprep: the mapping, normalization and prohibitions a client applies to a username and a password before sending either |
-| [4422] | The SASL framework: the notion of an authentication exchange, of an initial client response, and the EXTERNAL mechanism that defers to the outer channel |
+| [2195] | The CRAM-MD5 mechanism: the keyed digest answering a server challenge, the only server-first exchange here            |
+| [4013] | SASLprep: the mapping, normalization and prohibitions applied to a username and a password before either is sent      |
+| [4422] | The SASL framework: the authentication exchange, the initial client response, and the EXTERNAL mechanism deferring to the outer channel |
 | [4505] | The ANONYMOUS mechanism: an optional trace token identifying an unauthenticated user                                  |
 | [4616] | The PLAIN mechanism: the authorization identity, authentication identity and password triple                          |
-| [4752] | The GSSAPI mechanism: the exchange around the Kerberos tokens, which the caller's own security context produces        |
+| [4752] | The GSSAPI mechanism: the exchange around the Kerberos tokens the caller's security context produces                  |
 | [5801] | The GS2 bridge: the header a Kerberos mechanism opens with, the three channel binding flags every `-PLUS` name rests on, and GS2-KRB5 itself |
-| [5802] | The SCRAM family: salted password derivation, the client proof, verification of the server signature, the SHA-1 profile, and the channel binding flags including the one that reports a stripped offer |
+| [5802] | The SCRAM family: salted password derivation, the client proof, verification of the server signature, the SHA-1 profile, and the channel binding flags |
 | [5929] | The TLS channel bindings a `-PLUS` exchange can be bound to below TLS 1.3, `tls-unique` and `tls-server-end-point`     |
 | [7628] | The OAUTHBEARER mechanism: the bearer token message, and the acknowledgement the server needs to report a failure     |
 | [7677] | The SHA-256 profile of SCRAM, verified against the exchange published in the specification                            |
 | [9266] | The `tls-exporter` channel binding, the only one defined for TLS 1.3                                                  |
 
-The channel binding material itself is extracted from the TLS session by the caller and handed over with the credentials, since a library that opens no connection cannot ask a session what it exported. Kerberos tokens arrive the same way, from a security context the caller holds.
+Channel binding material and Kerberos tokens both arrive with the credentials, since a library opening no connection can ask neither a TLS session nor a KDC.
 
-SASLprep leaves out two of the checks RFC 3454 lists, the bidirectional rule and the unassigned code points, both of which reject strings rather than change them; everything that decides what bytes go on the wire is applied.
+SASLprep applies everything deciding what bytes go on the wire. It leaves out the two checks of RFC 3454 that reject strings rather than change them, the bidirectional rule and the unassigned code points.
 
 Three mechanisms were never standardised: LOGIN follows [draft-murchison-sasl-login](https://datatracker.ietf.org/doc/html/draft-murchison-sasl-login-00), SCRAM-SHA-512 follows [draft-melnikov-scram-sha-512](https://datatracker.ietf.org/doc/html/draft-melnikov-scram-sha-512) and is registered with IANA under that name, and XOAUTH2 follows the [Google specification](https://developers.google.com/gmail/imap/xoauth2-protocol) that Google and Microsoft implement.
 
@@ -74,11 +74,11 @@ Three mechanisms were never standardised: LOGIN follows [draft-murchison-sasl-lo
 
 ## Usage
 
-The whole API is documented on [docs.rs](https://docs.rs/io-sasl/latest/io_sasl), including a runnable snippet for every mechanism, and starting with the crate header describing how a mechanism is driven and where the boundary with the protocol library sits.
+The whole API is documented on [docs.rs](https://docs.rs/io-sasl/latest/io_sasl), including a runnable snippet for every mechanism and a crate header describing how a mechanism is driven.
 
 ## Examples
 
-The crate ships no examples folder, since a mechanism only comes alive inside a protocol exchange: every mechanism module opens with a runnable snippet driving its own exchange, the integration tests under [tests](./tests) drive whole exchanges the way a protocol library drives them, and the protocol libraries built on it show the real wiring.
+The crate ships no examples folder, a mechanism only coming alive inside a protocol exchange. Every mechanism module opens with a runnable snippet, and the integration tests under [tests](./tests) drive whole exchanges the way a protocol library does.
 
 ## License
 
@@ -104,7 +104,7 @@ Special thanks to the [NLnet foundation](https://nlnet.nl/) and the [European Co
 - 2024 → 2026: [NGI Zero Core](https://nlnet.nl/project/Pimalaya-PIM/)
 - 2026 → 2027: [NGI Zero Commons Fund](https://nlnet.nl/project/Pimalaya-pimdir/)
 
-If you appreciate the project, feel free to donate using one of the following providers:
+This program is part of Pimalaya, free software funded entirely by grants and donations. If you find it useful, consider [sponsoring](https://pimalaya.org/sponsor/) its development:
 
 [![GitHub](https://img.shields.io/badge/-GitHub%20Sponsors-fafbfc?logo=GitHub%20Sponsors)](https://github.com/sponsors/soywod)
 [![Ko-fi](https://img.shields.io/badge/-Ko--fi-ff5e5a?logo=Ko-fi&logoColor=ffffff)](https://ko-fi.com/soywod)

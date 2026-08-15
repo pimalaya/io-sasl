@@ -253,7 +253,7 @@ mod tests {
         rfc4505::anonymous::SaslAnonymousCreds,
         rfc4616::plain::SaslPlainCreds,
         rfc4752::gssapi::SaslGssapiCreds,
-        rfc5801::{SaslGs2ChannelBinding, gs2_krb5::SaslGs2Krb5Creds},
+        rfc5801::{SaslGs2ChannelBinding, SaslGs2ChannelBindingKind, gs2_krb5::SaslGs2Krb5Creds},
         rfc7628::oauthbearer::SaslOauthbearerCreds,
         xoauth2::SaslXoauth2Creds,
     };
@@ -277,6 +277,17 @@ mod tests {
             );
 
             named.push(name);
+        }
+    }
+
+    #[test]
+    fn every_credential_reports_the_name_its_binding_puts_it_under() {
+        for (mechanism, sasl) in vocabulary() {
+            assert_eq!(sasl.mechanism(), mechanism, "{mechanism:?} unbound");
+        }
+
+        for (mechanism, sasl) in bound_vocabulary() {
+            assert_eq!(sasl.mechanism(), mechanism, "{mechanism:?} bound");
         }
     }
 
@@ -413,14 +424,22 @@ mod tests {
             (SaslMechanism::ScramSha512, Sasl::ScramSha512(scram_creds())),
         ];
 
-        #[cfg(feature = "scram-sha-1")]
-        vocabulary.push((SaslMechanism::ScramSha1, Sasl::ScramSha1(scram_creds())));
-
+        vocabulary.extend(scram_sha_1_vocabulary());
         vocabulary
     }
 
     #[cfg(not(feature = "scram"))]
     fn scram_vocabulary() -> Vec<(SaslMechanism, Sasl)> {
+        Vec::new()
+    }
+
+    #[cfg(feature = "scram-sha-1")]
+    fn scram_sha_1_vocabulary() -> Vec<(SaslMechanism, Sasl)> {
+        vec![(SaslMechanism::ScramSha1, Sasl::ScramSha1(scram_creds()))]
+    }
+
+    #[cfg(all(feature = "scram", not(feature = "scram-sha-1")))]
+    fn scram_sha_1_vocabulary() -> Vec<(SaslMechanism, Sasl)> {
         Vec::new()
     }
 
@@ -431,6 +450,63 @@ mod tests {
             password: SecretString::from("pencil"),
             nonce: vec![],
             channel_binding: SaslGs2ChannelBinding::Unsupported,
+        }
+    }
+
+    /// The vocabulary again, with every bindable mechanism bound,
+    /// paired with the `-PLUS` name binding puts it under.
+    ///
+    /// The credentials come from the table above rather than from a
+    /// second one, so a `-PLUS` name is claimed by exactly the
+    /// credentials claiming the bare name, which is the property being
+    /// checked. The wildcard is the mechanisms having no `-PLUS` name
+    /// to answer to.
+    fn bound_vocabulary() -> Vec<(SaslMechanism, Sasl)> {
+        vocabulary()
+            .into_iter()
+            .filter_map(|(_, sasl)| match sasl {
+                Sasl::Gs2Krb5(creds) => Some((
+                    SaslMechanism::Gs2Krb5Plus,
+                    Sasl::Gs2Krb5(SaslGs2Krb5Creds {
+                        channel_binding: bound(),
+                        ..creds
+                    }),
+                )),
+                #[cfg(feature = "scram-sha-1")]
+                Sasl::ScramSha1(creds) => Some((
+                    SaslMechanism::ScramSha1Plus,
+                    Sasl::ScramSha1(SaslScramCreds {
+                        channel_binding: bound(),
+                        ..creds
+                    }),
+                )),
+                #[cfg(feature = "scram")]
+                Sasl::ScramSha256(creds) => Some((
+                    SaslMechanism::ScramSha256Plus,
+                    Sasl::ScramSha256(SaslScramCreds {
+                        channel_binding: bound(),
+                        ..creds
+                    }),
+                )),
+                #[cfg(feature = "scram")]
+                Sasl::ScramSha512(creds) => Some((
+                    SaslMechanism::ScramSha512Plus,
+                    Sasl::ScramSha512(SaslScramCreds {
+                        channel_binding: bound(),
+                        ..creds
+                    }),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A channel binding in use, standing in for what a caller extracts
+    /// from its TLS session.
+    fn bound() -> SaslGs2ChannelBinding {
+        SaslGs2ChannelBinding::Bound {
+            kind: SaslGs2ChannelBindingKind::TlsExporter,
+            data: vec![0; 8],
         }
     }
 

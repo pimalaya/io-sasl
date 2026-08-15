@@ -38,7 +38,7 @@ use io_sasl::{
     rfc4616::plain::{SaslPlain, SaslPlainCreds},
     rfc4752::gssapi::{SaslGssapi, SaslGssapiCreds},
     rfc5801::{
-        SaslGs2ChannelBinding, SaslGs2ChannelBindingKind,
+        SaslGs2ChannelBinding,
         gs2_krb5::{SaslGs2Krb5, SaslGs2Krb5Creds},
     },
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
@@ -51,6 +51,7 @@ use io_sasl::rfc2195::cram_md5::{SaslCramMd5, SaslCramMd5Creds};
 
 #[cfg(feature = "scram")]
 use io_sasl::{
+    rfc5801::SaslGs2ChannelBindingKind,
     rfc5802::{SaslScramCreds, SaslScramError},
     rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
@@ -99,6 +100,7 @@ fn every_exchange_yields_the_payloads_its_specification_defines() {
                 ) => {
                     assert_eq!(payload, bytes, "{name} sent an unexpected payload");
                 }
+                #[cfg(feature = "cram-md5")]
                 (SaslCoroutineState::Yielded(SaslYield::WantsRead), Expect::AwaitsInput) => {}
                 (SaslCoroutineState::Complete(Ok(())), Expect::CompletesOk) => {}
                 _ => panic!("{name} was expected to {expected:?}, got {step:?}"),
@@ -233,7 +235,9 @@ enum Expect {
     /// Yield exactly these bytes as the next response.
     Responds(&'static [u8]),
     /// Ask for input rather than send anything, which only a
-    /// server-first mechanism does.
+    /// server-first mechanism does. CRAM-MD5 is the only one, so the
+    /// case exists only where its feature does.
+    #[cfg(feature = "cram-md5")]
     AwaitsInput,
     /// Complete the exchange successfully.
     CompletesOk,

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-15
+
 ### Added
 
 - Added the `SaslCoroutine` trait, the I/O-free contract every mechanism implements.
@@ -15,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the SASL vocabulary, moved from `pimalaya-stream`.
 
-  `SaslMechanism` tags a mechanism and knows its wire name, listing every mechanism whatever the build enables, since a consumer reading a server capability list has to name the ones it cannot run. `Sasl` pairs a tag with the credentials of one, and each credential struct lives in the module of the mechanism that transmits it, next to its coroutine. The three SCRAM profiles share `SaslScramCreds`, differing only in their digest.
+  `SaslMechanism` tags a mechanism and knows its wire name, listing every mechanism whatever the build enables, since a consumer reading a server capability list has to name the ones it cannot run. `Sasl` pairs a tag with the credentials of one and reports that tag back, a profile registered under two names giving the one its channel binding puts it under. Each credential struct lives in the module of the mechanism that transmits it, next to its coroutine. The three SCRAM profiles share `SaslScramCreds`, differing only in their digest.
 
 - Added the ANONYMOUS mechanism following RFC 4505, sending an optional trace token.
 
@@ -45,20 +47,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the GS2-KRB5 mechanism following RFC 5801, relayed like GSSAPI but with the GS2 header this crate writes itself.
 
-  The header carries the authorization identity and the channel binding flag, so Kerberos gets the `-PLUS` name and the downgrade detection SCRAM already had. The channel binding vocabulary moved to `rfc5801`, where the GS2 bridge defines it, and SCRAM now shares it.
+  The header carries the authorization identity and the channel binding flag, so Kerberos gets the `-PLUS` name and the downgrade detection SCRAM has. The channel binding vocabulary lives in `rfc5801`, where the GS2 bridge defines it, and SCRAM shares it.
 
 - Added the GSSAPI mechanism following RFC 4752, as a relay rather than an implementation.
 
-  Its tokens come from a Kerberos implementation that reads a credential cache and talks to a KDC, which this crate can neither host nor hoist into credentials. So `SaslGssapiCreds` carries the first token, every `Input` is forwarded verbatim as the next response, and the caller advances its own security context between the two. The library holds the mechanism name, the initial response and the sequencing; the caller holds the context and the round count. The security layer negotiation of RFC 4752 section 3.1 is carried as two pure functions, `SaslGssapiSecurityLayerOffer::parse` and `SaslGssapiSecurityLayerChoice::to_bytes`, since only the caller can move those bytes through its context.
+  Its tokens come from a Kerberos implementation that reads a credential cache and talks to a KDC, which this crate can neither host nor hoist into credentials. So `SaslGssapiCreds` carries the first token, every `Input` is forwarded verbatim as the next response, and the caller advances its own security context between the two. The library holds the mechanism name, the initial response and the sequencing. The caller holds the context and the round count. The security layer negotiation of RFC 4752 section 3.1 is carried as two pure functions, `SaslGssapiSecurityLayerOffer::parse` and `SaslGssapiSecurityLayerChoice::to_bytes`, since only the caller can move those bytes through its context.
 
 - Added the SCRAM family following RFC 5802, behind the `scram` cargo feature, in three profiles: SHA-256 (RFC 7677) and SHA-512 (draft-melnikov-scram-sha-512) by default, SHA-1 (RFC 5802) behind `scram-sha-1`.
 
-  The exchange is written once and each profile is its digest and the two names it is registered under. It is verified against the exchanges published in RFC 5802 section 5 and RFC 7677 section 3; the SHA-512 and channel-bound vectors, which no specification publishes, were derived by an implementation outside this crate that reproduces both published ones.
+  The exchange is written once and each profile is its digest and the two names it is registered under. It is verified against the exchanges published in RFC 5802 section 5 and RFC 7677 section 3. The SHA-512 and channel-bound vectors, which no specification publishes, were derived by an implementation outside this crate that reproduces both published ones.
 
-  The client nonce is a field of `SaslScramCreds` rather than something the mechanism generates, since an I/O-free mechanism cannot produce entropy; carrying it with the credentials means a protocol crate holding a `Sasl` always has everything the exchange needs. An exchange ending before the server signature was verified fails with `ServerSignatureNotVerified` instead of succeeding, so mutual authentication cannot be skipped by omission.
+  The client nonce is a field of `SaslScramCreds` rather than something the mechanism generates, since an I/O-free mechanism cannot produce entropy. Carrying it with the credentials means a protocol crate holding a `Sasl` always has everything the exchange needs. An exchange ending before the server signature was verified fails with `ServerSignatureNotVerified` instead of succeeding, so mutual authentication cannot be skipped by omission.
 
 - Added channel binding, so every SCRAM profile also speaks its `-PLUS` name.
 
-  `SaslScramCreds` carries a `SaslScramChannelBinding`, which the caller extracts from its TLS session: this crate opens no connection and cannot ask a session what it exported. The binding also picks the mechanism name the coroutine reports, so a bound exchange announces `-PLUS` by construction. A client that supports binding without using it sends the `y` flag of RFC 5802 section 6 rather than `n`, so a server supporting it sees that its `-PLUS` offer was stripped in flight.
+  `SaslScramCreds` carries a `SaslGs2ChannelBinding`, which the caller extracts from its TLS session: this crate opens no connection and cannot ask a session what it exported. The binding also picks the mechanism name the coroutine reports, so a bound exchange announces `-PLUS` by construction. A client that supports binding without using it sends the `y` flag of RFC 5802 section 6 rather than `n`, so a server supporting it sees that its `-PLUS` offer was stripped in flight.
 
-[unreleased]: https://github.com/pimalaya/io-sasl
+[unreleased]: https://github.com/pimalaya/io-sasl/compare/v0.1.0..HEAD
+[0.1.0]: https://github.com/pimalaya/io-sasl/compare/root..v0.1.0
