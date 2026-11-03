@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the base64 crate with [base64-codec](https://crates.io/crates/base64-codec) for the SCRAM `s=`, `c=`, `p=` and `v=` values.
+
+  The salt and the server signature decode leniently: a missing padding, non-zero trailing bits and blanks are accepted, any other byte outside the alphabet still fails with `InvalidBase64`.
+
+- Changed the minimum Rust version to 1.89, base64-codec's.
+
 ## [0.1.0] - 2026-08-15
 
 ### Added

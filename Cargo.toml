@@ -3,7 +3,7 @@ name = "io-sasl"
 description = "Simple Authentication and Security Layer (SASL) client library for Rust"
 version = "0.1.0"
 authors = ["Clément DOUIN (soywod) <pimalaya.org@posteo.net>"]
-rust-version = "1.87"
+rust-version = "1.89"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 categories = ["api-bindings", "no-std", "authentication"]
@@ -20,11 +20,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = ["saslprep", "scram"]
 cram-md5 = ["dep:hmac", "dep:md-5"]
 saslprep = ["dep:unicode-normalization"]
-scram = ["dep:base64", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
+scram = ["dep:base64-codec", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
 scram-sha-1 = ["scram", "dep:sha1"]
 
 [dependencies]
-base64 = { version = "0.23", default-features = false, features = ["alloc"], optional = true }
+base64-codec = { version = "0.1", default-features = false, features = ["alloc"], optional = true }
 hmac = { version = "0.13", default-features = false, optional = true }
 log = { version = "0.4", default-features = false }
 md-5 = { version = "0.11", default-features = false, optional = true }

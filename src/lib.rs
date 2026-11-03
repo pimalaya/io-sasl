@@ -66,11 +66,12 @@
 //! - [`xoauth2`], the XOAUTH2 mechanism (Google, pre-standard)
 //!
 //! Everything SCRAM sits behind the `scram` cargo feature, which pulls
-//! in the HMAC, PBKDF2, SHA-2 and base64 crates the algorithm needs, and
-//! the SHA-1 profile behind `scram-sha-1` on top, since it is the one
-//! that pulls another digest crate. The exchange itself is written once,
-//! in [`rfc5802::SaslScram`]: a profile module is its digest, the two
-//! names it is registered under, and the test vector it is pinned by.
+//! in the HMAC, PBKDF2, SHA-2 and base64-codec crates the algorithm
+//! needs, and the SHA-1 profile behind `scram-sha-1` on top, since it is
+//! the one that pulls another digest crate. The exchange itself is
+//! written once, in [`rfc5802::SaslScram`]: a profile module is its
+//! digest, the two names it is registered under, and the test vector it
+//! is pinned by.
 //!
 //! Each mechanism module opens with a runnable example driving its
 //! exchange step by step, which is the shortest description of what a

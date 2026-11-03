@@ -51,7 +51,7 @@ use alloc::{
     vec::Vec,
 };
 
-use base64::{Engine, engine::general_purpose::STANDARD as base64};
+use base64_codec::codec::Base64Codec;
 use hmac::{EagerHash, Hmac, KeyInit, Mac, digest::Output};
 use log::{debug, trace};
 use pbkdf2::pbkdf2_hmac;
@@ -100,7 +100,8 @@ pub enum SaslScramError {
     /// The `i=` iteration count did not parse as an integer.
     #[error("SASL SCRAM failed: invalid iteration count")]
     InvalidIterationCount,
-    /// A base64 value in a server message failed to decode.
+    /// A base64 value in a server message holds a byte outside the
+    /// alphabet, or data after its padding.
     #[error("SASL SCRAM failed: invalid base64 in server message")]
     InvalidBase64,
     /// The server nonce did not extend the client nonce, so the server
@@ -220,7 +221,7 @@ impl<D: SaslScramDigest> SaslScram<D> {
             client_first_bare: String::new(),
             client_nonce,
             gs2_header,
-            cbind_input: base64.encode(cbind_input),
+            cbind_input: base64_encode(&cbind_input),
             mechanism,
             expected_server_signature: Vec::new(),
             state: State::SendClientFirst,
@@ -242,10 +243,7 @@ impl<D: SaslScramDigest> SaslScram<D> {
             if let Some(r) = field.strip_prefix("r=") {
                 nonce = Some(r);
             } else if let Some(s) = field.strip_prefix("s=") {
-                let s = base64
-                    .decode(s)
-                    .map_err(|_| SaslScramError::InvalidBase64)?;
-                salt = Some(s);
+                salt = Some(base64_decode(s)?);
             } else if let Some(i) = field.strip_prefix("i=") {
                 let i = i
                     .parse::<u32>()
@@ -288,7 +286,7 @@ impl<D: SaslScramDigest> SaslScram<D> {
         let server_key = hmac::<D>(&salted_password, b"Server Key");
         self.expected_server_signature = hmac::<D>(&server_key, auth_message.as_bytes()).to_vec();
 
-        let proof = base64.encode(client_proof);
+        let proof = base64_encode(&client_proof);
 
         Ok(format!("{client_final_without_proof},p={proof}").into_bytes())
     }
@@ -306,9 +304,7 @@ impl<D: SaslScramDigest> SaslScram<D> {
             .strip_prefix("v=")
             .ok_or(SaslScramError::InvalidServerFinal)?;
 
-        let signature = base64
-            .decode(signature)
-            .map_err(|_| SaslScramError::InvalidBase64)?;
+        let signature = base64_decode(signature)?;
 
         // NOTE: the bytes are compared in constant time, so a wrong
         // signature leaks nothing about how much of it matched.
@@ -427,6 +423,25 @@ fn hmac<D: EagerHash>(key: &[u8], data: &[u8]) -> Output<Hmac<D>> {
     let mut mac = Hmac::<D>::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(data);
     mac.finalize().into_bytes()
+}
+
+/// The standard, padded base64 of `bytes`.
+fn base64_encode(bytes: &[u8]) -> String {
+    let mut encoded = Vec::new();
+    Base64Codec::default().encode_vec(bytes, &mut encoded);
+    // NOTE: the base64 alphabet is ASCII, so this never falls back.
+    String::from_utf8(encoded).unwrap_or_default()
+}
+
+/// Decodes a base64 value of a server message, leniently: a missing
+/// padding, non-zero trailing bits and blanks are accepted.
+fn base64_decode(text: &str) -> Result<Vec<u8>, SaslScramError> {
+    let mut decoded = Vec::new();
+
+    match Base64Codec::default().decode_vec(text.as_bytes(), &mut decoded) {
+        true => Ok(decoded),
+        false => Err(SaslScramError::InvalidBase64),
+    }
 }
 
 #[cfg(test)]
@@ -657,6 +672,19 @@ mod tests {
                 "a server-first-message with no valid {what} was accepted"
             );
         }
+    }
+
+    #[test]
+    fn an_unpadded_server_signature_verifies() {
+        let mut auth = SaslScramSha256::new(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
+
+        let unpadded = SERVER_FINAL.trim_end_matches('=');
+        let ack = respond(&mut auth, SaslArg::Input(unpadded.as_bytes()));
+
+        assert!(ack.is_empty());
     }
 
     #[test]

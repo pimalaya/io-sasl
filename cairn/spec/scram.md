@@ -9,7 +9,7 @@ status: current
 The salted challenge/response family of RFC 5802, in three digest profiles and six registered names. It is the only family needing cryptography, the only one performing mutual authentication, and the reason the crate exists: it used to be implemented twice, once in io-imap and once in io-smtp, with two independent bug surfaces.
 
 ### Requirement: Feature gates
-The family SHALL live behind the `scram` cargo feature, which pulls in the HMAC, PBKDF2, SHA-2 and base64 crates and carries the SHA-256 and SHA-512 profiles. The SHA-1 profile SHALL live behind `scram-sha-1`, which adds its digest crate. The SHA-256 and SHA-512 profiles SHALL NOT be gated apart, sharing one digest crate; the rest of the crate SHALL build with neither feature.
+The family SHALL live behind the `scram` cargo feature, which pulls in the HMAC, PBKDF2, SHA-2 and base64-codec crates and carries the SHA-256 and SHA-512 profiles. The SHA-1 profile SHALL live behind `scram-sha-1`, which adds its digest crate. The SHA-256 and SHA-512 profiles SHALL NOT be gated apart, sharing one digest crate; the rest of the crate SHALL build with neither feature.
 
 ### Requirement: One exchange, three profiles
 The exchange SHALL be written once, generic over the digest. A profile SHALL add exactly three things: the digest, the two mechanism names it is registered under, and the exchange it is pinned by. A profile SHALL NOT restate the message assembly, since a family implemented once per digest is the duplication this crate was extracted to remove.
@@ -30,6 +30,8 @@ The binding material SHALL be supplied by the caller with the credentials, along
 
 ### Requirement: Server verification
 The server nonce SHALL extend the client nonce, failing with `NonceMismatch` otherwise. The server-final-message SHALL carry `v=` matching the expected signature, failing with `ServerSignatureMismatch` otherwise, `ServerError` when it carries `e=`, and `InvalidServerFinal` when it carries neither.
+
+The `s=` salt and the `v=` signature SHALL decode leniently, accepting a missing padding, non-zero trailing bits and blanks, and SHALL fail with `InvalidBase64` on any other byte outside the alphabet or on data after the padding. Leniency weakens nothing: a signature decoded from a non-canonical form still has to match byte for byte.
 
 ### Requirement: No silent skip
 `Done` arriving before the server signature was verified SHALL complete `Err` with `ServerSignatureNotVerified`, never `Ok`. A protocol accepting its own success reply without feeding the server-final-message back therefore fails instead of silently skipping mutual authentication.
