@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
 ### Changed
 
 - Replaced the base64 crate with [base64-codec](https://crates.io/crates/base64-codec) for the SCRAM `s=`, `c=`, `p=` and `v=` values.
@@ -71,5 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `SaslScramCreds` carries a `SaslGs2ChannelBinding`, which the caller extracts from its TLS session: this crate opens no connection and cannot ask a session what it exported. The binding also picks the mechanism name the coroutine reports, so a bound exchange announces `-PLUS` by construction. A client that supports binding without using it sends the `y` flag of RFC 5802 section 6 rather than `n`, so a server supporting it sees that its `-PLUS` offer was stripped in flight.
 
-[unreleased]: https://github.com/pimalaya/io-sasl/compare/v0.1.0..HEAD
+[unreleased]: https://github.com/pimalaya/io-sasl/compare/v0.1.1..HEAD
+[0.1.1]: https://github.com/pimalaya/io-sasl/compare/v0.1.0..v0.1.1
 [0.1.0]: https://github.com/pimalaya/io-sasl/compare/root..v0.1.0
