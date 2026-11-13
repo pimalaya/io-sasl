@@ -24,7 +24,7 @@ Each credential struct SHALL live in the module of the mechanism that transmits 
 A mechanism SHALL name its coroutine, its failure type and its credential struct after the mechanism alone: `SaslPlain`, `SaslPlainError`, `SaslPlainCreds`. The `Auth` verb the Pimalaya naming canon would put on the coroutine SHALL be dropped, a verb every item of the crate shares telling none of them apart, and the credentials SHALL carry the `Creds` extension instead. This is a local exception to the canon, not a change to it.
 
 ### Requirement: Constructors
-Each mechanism SHALL be built from the credential struct it shares with its `Sasl` variant, so a consumer matching on that enum reaches the mechanism it needs without restating the fields.
+Each mechanism SHALL be built from the credential struct it shares with its `Sasl` variant, so a consumer matching on that enum reaches the mechanism it needs without restating the fields. A mechanism with behaviour to bound SHALL take it as a second, defaulted options argument.
 
 ### Requirement: ANONYMOUS
 `SaslAnonymous` (RFC 4505) SHALL answer `None` with the optional trace token, or an empty payload when there is none, and complete `Ok` on `Done`.

@@ -28,7 +28,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use io_sasl::{
     coroutine::*,
     rfc5801::SaslGs2ChannelBinding,
-    rfc5802::{SaslScramCreds, SaslScramError},
+    rfc5802::{SASL_SCRAM_MIN_NONCE_LEN, SaslScramCreds, SaslScramError, SaslScramOptions},
     rfc7677::scram_sha_256::SaslScramSha256,
 };
 use libfuzzer_sys::fuzz_target;
@@ -38,11 +38,9 @@ use sha2::Sha256;
 
 /// The largest iteration count the target derives.
 ///
-/// NOTE: the count comes from the server and RFC 5802 puts no ceiling
-/// on it, so a fuzzed `i=4000000000` is a legitimate message that
-/// simply takes minutes of PBKDF2. That is a cost question for the
-/// consumer rather than a memory-safety one, and libFuzzer would report
-/// it as a timeout, so those challenges end the run instead.
+/// NOTE: it is handed to the mechanism as its ceiling, so a fuzzed
+/// `i=4000000000` is refused rather than derived, and a ceiling that
+/// stopped holding would show as a libFuzzer timeout.
 const MAX_ITERATIONS: u32 = 1024;
 
 /// The credentials and the server's side of an exchange.
@@ -87,14 +85,29 @@ impl Exchange {
         // NOTE: the oracle recomputes the signature over the GS2 header
         // it watched go out, so an unbound exchange is what keeps that
         // arithmetic independent of the binding this crate assembles.
+        // NOTE: the fuzzed bytes are folded onto the nonce alphabet and
+        // padded, or nearly every exchange would end at its first step.
+        let printable = |byte: &u8| match b'!' + byte % 94 {
+            b',' => b'.',
+            byte => byte,
+        };
+
+        let mut nonce: Vec<u8> = self.nonce.iter().map(printable).collect();
+        nonce.resize(nonce.len().max(SASL_SCRAM_MIN_NONCE_LEN), b'A');
+
         let creds = SaslScramCreds {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
-            nonce: self.nonce.clone(),
+            nonce,
             channel_binding: SaslGs2ChannelBinding::Unsupported,
         };
 
-        let mut auth = SaslScramSha256::new(creds);
+        let opts = SaslScramOptions {
+            min_iterations: Some(1),
+            max_iterations: Some(MAX_ITERATIONS),
+        };
+
+        let mut auth = SaslScramSha256::new(creds, opts);
 
         let started = auth.resume(SaslArg::None);
 
@@ -130,10 +143,6 @@ impl Exchange {
                 }
             };
 
-            if !affordable(&challenge) {
-                return;
-            }
-
             match auth.resume(SaslArg::Input(&challenge)) {
                 SaslCoroutineState::Yielded(SaslYield::WantsWrite(payload)) => {
                     oracle.responded(&challenge, &payload)
@@ -167,8 +176,7 @@ impl Oracle {
         );
 
         // NOTE: the escaped username carries no comma, so the first
-        // ",r=" is the nonce separator even when the nonce itself
-        // carries commas.
+        // ",r=" is the nonce separator.
         let (_, nonce) = bare
             .split_once(",r=")
             .expect("the client-first-message carries a nonce");
@@ -270,19 +278,6 @@ impl Oracle {
 
         Some(base64.encode(hmac_sha256(&server_key, auth_message.as_bytes())))
     }
-}
-
-/// Whether a challenge is cheap enough to feed.
-fn affordable(challenge: &[u8]) -> bool {
-    let Ok(challenge) = from_utf8(challenge) else {
-        return true;
-    };
-
-    challenge
-        .split(',')
-        .filter_map(|field| field.strip_prefix("i="))
-        .filter_map(|iterations| iterations.parse::<u32>().ok())
-        .all(|iterations| iterations <= MAX_ITERATIONS)
 }
 
 /// HMAC-SHA-256 as RFC 5802 uses it: `HMAC(key, data)`.

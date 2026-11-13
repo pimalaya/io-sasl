@@ -13,8 +13,6 @@
 //! carrying the very separators SCRAM-SHA-256 escapes is only
 //! interesting if the target is allowed to generate one.
 
-use core::str::from_utf8;
-
 use arbitrary::Arbitrary;
 use io_sasl::{
     coroutine::*,
@@ -28,7 +26,9 @@ use io_sasl::{
         SaslGs2ChannelBinding, SaslGs2ChannelBindingKind,
         gs2_krb5::{SaslGs2Krb5, SaslGs2Krb5Creds},
     },
-    rfc5802::{SaslScramCreds, scram_sha_1::SaslScramSha1},
+    rfc5802::{
+        SASL_SCRAM_MIN_NONCE_LEN, SaslScramCreds, SaslScramOptions, scram_sha_1::SaslScramSha1,
+    },
     rfc7628::oauthbearer::{SaslOauthbearer, SaslOauthbearerCreds},
     rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
@@ -37,13 +37,11 @@ use io_sasl::{
 use libfuzzer_sys::fuzz_target;
 use secrecy::SecretString;
 
-/// The largest SCRAM-SHA-256 iteration count the target derives.
+/// The largest SCRAM iteration count the target derives.
 ///
-/// NOTE: the count comes from the server and RFC 5802 puts no ceiling
-/// on it, so a fuzzed `i=4000000000` is a legitimate message that
-/// simply takes minutes of PBKDF2. That is a cost question for the
-/// consumer rather than a memory-safety one, and libFuzzer would report
-/// it as a timeout, so those challenges are skipped.
+/// NOTE: it is handed to the mechanisms as their ceiling, so a fuzzed
+/// `i=4000000000` is refused rather than derived, and a ceiling that
+/// stopped holding would show as a libFuzzer timeout.
 const MAX_ITERATIONS: u32 = 1024;
 
 /// The credentials and the peer's side of an exchange.
@@ -74,11 +72,15 @@ fuzz_target!(|exchange: Exchange| {
     unstarted(SaslOauthbearer::new(exchange.oauthbearer()), &first);
     unstarted(SaslXoauth2::new(exchange.xoauth2()), &first);
 
-    if affordable(&first) {
-        unstarted(SaslScramSha1::new(exchange.scram(false)), &first);
-        unstarted(SaslScramSha256::new(exchange.scram(false)), &first);
-        unstarted(SaslScramSha512::new(exchange.scram(false)), &first);
-    }
+    unstarted(SaslScramSha1::new(exchange.scram(false), bounds()), &first);
+    unstarted(
+        SaslScramSha256::new(exchange.scram(false), bounds()),
+        &first,
+    );
+    unstarted(
+        SaslScramSha512::new(exchange.scram(false), bounds()),
+        &first,
+    );
 
     // The same peer answering a mechanism driven from its initial
     // response, as a protocol crate drives it.
@@ -92,17 +94,23 @@ fuzz_target!(|exchange: Exchange| {
     exchange.drive(SaslOauthbearer::new(exchange.oauthbearer()));
     exchange.drive(SaslXoauth2::new(exchange.xoauth2()));
 
-    if exchange.challenges.iter().all(|c| affordable(c)) {
-        // NOTE: every profile is driven both plain and bound, since the
-        // binding reaches the wire twice, in the GS2 header and in the
-        // c= field of a message the proof is computed over.
-        exchange.drive(SaslScramSha1::new(exchange.scram(false)));
-        exchange.drive(SaslScramSha1::new(exchange.scram(true)));
-        exchange.drive(SaslScramSha256::new(exchange.scram(false)));
-        exchange.drive(SaslScramSha256::new(exchange.scram(true)));
-        exchange.drive(SaslScramSha512::new(exchange.scram(false)));
-        exchange.drive(SaslScramSha512::new(exchange.scram(true)));
-    }
+    // NOTE: every profile is driven both plain and bound, since the
+    // binding reaches the wire twice, in the GS2 header and in the
+    // c= field of a message the proof is computed over.
+    exchange.drive(SaslScramSha1::new(exchange.scram(false), bounds()));
+    exchange.drive(SaslScramSha1::new(exchange.scram(true), bounds()));
+    exchange.drive(SaslScramSha256::new(exchange.scram(false), bounds()));
+    exchange.drive(SaslScramSha256::new(exchange.scram(true), bounds()));
+    exchange.drive(SaslScramSha512::new(exchange.scram(false), bounds()));
+    exchange.drive(SaslScramSha512::new(exchange.scram(true), bounds()));
+
+    // The nonce as fuzzed, which the mechanism refuses unless it is one.
+    let raw = SaslScramCreds {
+        nonce: exchange.nonce.clone(),
+        ..exchange.scram(false)
+    };
+
+    exchange.drive(SaslScramSha256::new(raw, bounds()));
 });
 
 impl Exchange {
@@ -203,10 +211,20 @@ impl Exchange {
             SaslGs2ChannelBinding::Unsupported
         };
 
+        // NOTE: the fuzzed bytes are folded onto the nonce alphabet and
+        // padded, or nearly every exchange would end at its first step.
+        let printable = |byte: &u8| match b'!' + byte % 94 {
+            b',' => b'.',
+            byte => byte,
+        };
+
+        let mut nonce: Vec<u8> = self.nonce.iter().map(printable).collect();
+        nonce.resize(nonce.len().max(SASL_SCRAM_MIN_NONCE_LEN), b'A');
+
         SaslScramCreds {
             username: self.username.clone(),
             password: SecretString::from(self.password.clone()),
-            nonce: self.nonce.clone(),
+            nonce,
             channel_binding,
         }
     }
@@ -217,15 +235,10 @@ fn unstarted(mut mechanism: impl SaslCoroutine, challenge: &[u8]) {
     let _ = mechanism.resume(SaslArg::Input(challenge));
 }
 
-/// Whether a challenge is cheap enough to feed SCRAM-SHA-256.
-fn affordable(challenge: &[u8]) -> bool {
-    let Ok(challenge) = from_utf8(challenge) else {
-        return true;
-    };
-
-    challenge
-        .split(',')
-        .filter_map(|field| field.strip_prefix("i="))
-        .filter_map(|iterations| iterations.parse::<u32>().ok())
-        .all(|iterations| iterations <= MAX_ITERATIONS)
+/// The iteration bounds every SCRAM profile is driven with.
+fn bounds() -> SaslScramOptions {
+    SaslScramOptions {
+        min_iterations: Some(1),
+        max_iterations: Some(MAX_ITERATIONS),
+    }
 }

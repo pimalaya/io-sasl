@@ -21,6 +21,6 @@ nix develop .#fuzz --command bash -c "cargo fuzz run scram -- -max_total_time=60
 
 libFuzzer saves every interesting new input into `fuzz/corpus/<target>/` (gitignored), and any crash into `fuzz/artifacts/<target>/`, from where it is replayed with `cargo fuzz run <target> fuzz/artifacts/<target>/<file>`.
 
-Both targets cap the SCRAM-SHA-256 iteration count they are willing to derive at 1024 and skip the challenges asking for more. The count comes from the server and RFC 5802 puts no ceiling on it, so a fuzzed `i=4000000000` is a legitimate message that simply takes minutes of PBKDF2: a cost question for the consumer, not a memory-safety one, and libFuzzer would report it as a timeout.
+Both targets build SCRAM with an iteration ceiling of 1024 and a floor of 1, so a fuzzed `i=4000000000` is refused by the mechanism instead of taking minutes of PBKDF2, and a ceiling that stopped holding would show as a libFuzzer timeout. They also fold the fuzzed nonce bytes onto the nonce alphabet and pad them to the minimum length, or nearly every exchange would end at its first step; the `exchange` target drives one more SCRAM-SHA-256 with the nonce as fuzzed, for the refusal itself.
 
 Off NixOS, `cargo install cargo-fuzz` and a nightly toolchain give the same `cargo fuzz run <target>`.

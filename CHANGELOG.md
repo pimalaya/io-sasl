@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `rfc5802::SaslScramOptions`.
+
+  Its `min_iterations` (4096 by default) and `max_iterations` (five million by default) bound the iteration count a server may announce.
+
+- Added the `rfc5802::SASL_SCRAM_DEFAULT_MIN_ITERATIONS`, `SASL_SCRAM_DEFAULT_MAX_ITERATIONS` and `SASL_SCRAM_MIN_NONCE_LEN` constants.
+
+### Changed
+
+- **BREAKING**: Changed `rfc5802::SaslScram::new` to take `(creds, opts)`.
+
+- **BREAKING**: Added the `InvalidNonce`, `IterationCountTooLow` and `IterationCountTooHigh` variants to `rfc5802::SaslScramError`.
+
+### Security
+
+- Fixed SCRAM deriving its key for whatever iteration count the server announced.
+
+  A count below the floor or above the ceiling of the options fails with `IterationCountTooLow` or `IterationCountTooHigh` before the derivation runs.
+
+- Fixed SCRAM accepting an iteration count that is not a positive decimal number.
+
+  `i=0`, a sign and a leading zero fail with `InvalidIterationCount`, whatever the options.
+
+- Fixed SCRAM accepting a client nonce that cannot be one.
+
+  A nonce shorter than 18 bytes, an empty one included, or holding a comma or a byte outside printable ASCII fails the first resume with `InvalidNonce`.
+
 ## [0.1.1] - 2026-11-03
 
 ### Changed

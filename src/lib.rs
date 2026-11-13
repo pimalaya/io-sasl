@@ -153,7 +153,10 @@
 //! [`mechanism::Sasl`] always has everything the exchange needs and
 //! there is no mechanism for which it could forget to pass something.
 //! The exchange also stays deterministically testable against the
-//! published vectors.
+//! published vectors. What SCRAM can check it does check: a nonce too
+//! short or outside the `r=` alphabet fails the first resume, and the
+//! iteration count the server announces is held between two bounds the
+//! caller may move.
 //!
 //! ## Conventions
 //!

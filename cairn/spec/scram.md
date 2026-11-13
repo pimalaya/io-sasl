@@ -17,6 +17,14 @@ The exchange SHALL be written once, generic over the digest. A profile SHALL add
 ### Requirement: Caller-provided nonce
 The client nonce SHALL be a field of the credentials. The crate SHALL NOT depend on a random number generator, since an I/O-free mechanism cannot produce entropy and the caller owns that decision.
 
+The first resume SHALL fail with `InvalidNonce` when the nonce is shorter than 18 bytes or holds a comma or a byte outside printable ASCII, so that an empty or malformed nonce never reaches the wire. An empty nonce SHALL NOT stand for "draw one": a caller that owns entropy draws it before building the mechanism.
+
+### Requirement: Options
+`SaslScram::new` SHALL take the credentials and a `SaslScramOptions`, every field of which is optional and defaults to the crate's own value, so that a protocol crate can carry the struct inside its own options and hand it over untouched. Bounds SHALL NOT be fields of the credentials.
+
+### Requirement: Iteration bounds
+The mechanism SHALL refuse a server-first-message whose `i=` iteration count is outside the bounds of its options, before deriving anything: below `min_iterations` with `IterationCountTooLow`, above `max_iterations` with `IterationCountTooHigh`, both ends inclusive and both failures carrying the count and the bound. The floor SHALL default to 4096, the count RFC 5802 and RFC 7677 ask a server to announce at least, and the ceiling to five million, and both defaults SHALL be public constants. A count that is not the `posit-number` of RFC 5802 section 7, which excludes `0`, a sign and a leading zero, SHALL fail with `InvalidIterationCount` whatever the options.
+
 ### Requirement: Exchange
 The mechanism SHALL answer `None` with the client-first-message, the server-first challenge with the client-final-message, and the server-final challenge with an empty acknowledgement, then complete `Ok` on `Done`.
 

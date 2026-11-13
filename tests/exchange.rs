@@ -52,7 +52,7 @@ use io_sasl::rfc2195::cram_md5::{SaslCramMd5, SaslCramMd5Creds};
 #[cfg(feature = "scram")]
 use io_sasl::{
     rfc5801::SaslGs2ChannelBindingKind,
-    rfc5802::{SaslScramCreds, SaslScramError},
+    rfc5802::{SaslScramCreds, SaslScramError, SaslScramOptions},
     rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
 };
@@ -144,10 +144,10 @@ fn scram_refuses_every_exchange_ending_before_the_server_proved_itself() {
     // the server-final-message never fed back. The last one is the case
     // both duplicated implementations got wrong.
     for sent in 0..3 {
-        let mut auth = SaslScramSha256::new(scram_creds(
-            CLIENT_NONCE,
-            SaslGs2ChannelBinding::Unsupported,
-        ));
+        let mut auth = SaslScramSha256::new(
+            scram_creds(CLIENT_NONCE, SaslGs2ChannelBinding::Unsupported),
+            SaslScramOptions::default(),
+        );
 
         let prefix = [SaslArg::None, SaslArg::Input(SERVER_FIRST)];
 
@@ -554,17 +554,17 @@ fn scram_exchange() -> Vec<Exchange> {
 
     let mut exchanges: Vec<Exchange> = vec![
         (
-            Box::new(SaslScramSha256::new(scram_creds(
-                CLIENT_NONCE,
-                SaslGs2ChannelBinding::Unsupported,
-            ))),
+            Box::new(SaslScramSha256::new(
+                scram_creds(CLIENT_NONCE, SaslGs2ChannelBinding::Unsupported),
+                SaslScramOptions::default(),
+            )),
             scram_script(CLIENT_FIRST, SERVER_FIRST, CLIENT_FINAL, SERVER_FINAL),
         ),
         (
-            Box::new(SaslScramSha512::new(scram_creds(
-                CLIENT_NONCE,
-                SaslGs2ChannelBinding::Unsupported,
-            ))),
+            Box::new(SaslScramSha512::new(
+                scram_creds(CLIENT_NONCE, SaslGs2ChannelBinding::Unsupported),
+                SaslScramOptions::default(),
+            )),
             scram_script(
                 CLIENT_FIRST,
                 SERVER_FIRST,
@@ -577,7 +577,10 @@ fn scram_exchange() -> Vec<Exchange> {
         // properties above cover it only if a bound exchange is in the
         // table too.
         (
-            Box::new(SaslScramSha256::new(scram_creds(CLIENT_NONCE, bound))),
+            Box::new(SaslScramSha256::new(
+                scram_creds(CLIENT_NONCE, bound),
+                SaslScramOptions::default(),
+            )),
             scram_script(
                 BOUND_CLIENT_FIRST,
                 SERVER_FIRST,
@@ -599,10 +602,10 @@ fn scram_exchange() -> Vec<Exchange> {
 #[cfg(feature = "scram-sha-1")]
 fn scram_sha_1_exchange() -> Vec<Exchange> {
     vec![(
-        Box::new(SaslScramSha1::new(scram_creds(
-            SHA1_CLIENT_NONCE,
-            SaslGs2ChannelBinding::Unsupported,
-        ))),
+        Box::new(SaslScramSha1::new(
+            scram_creds(SHA1_CLIENT_NONCE, SaslGs2ChannelBinding::Unsupported),
+            SaslScramOptions::default(),
+        )),
         scram_script(
             SHA1_CLIENT_FIRST,
             SHA1_SERVER_FIRST,

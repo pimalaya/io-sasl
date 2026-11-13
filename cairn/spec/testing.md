@@ -25,6 +25,8 @@ The measured figure is 98.22%. The lines it counts short are second lines of mul
 ### Requirement: Fuzz targets
 The repository SHALL carry a cargo-fuzz package, unpublished and detached from the library's cargo workspace, holding at least two coverage-guided targets: one driving every mechanism with arbitrary credentials and arbitrary peer messages, in order and out of order, bound and unbound, and one driving SCRAM-SHA-256 with arbitrary server messages. The nightly toolchain and cargo-fuzz they need SHALL be exposed as the `fuzz` devShell of the repository flake, so a run inherits the nixpkgs and fenix pinned by flake.lock and needs no nixpkgs channel of its own.
 
+Both targets SHALL keep SCRAM affordable by handing the mechanisms a low iteration ceiling rather than by filtering the challenges they feed, so that the ceiling itself is under test, and SHALL fold the fuzzed nonce onto a valid one so that an exchange gets past its first step.
+
 ### Requirement: Documented exchanges
 Every mechanism module SHALL open with a runnable example driving its exchange step by step, compiled and run as a doctest. The example SHALL show the mechanism a consumer reaches for, not a fragment of it: what the protocol crate sends first, what it feeds back, and where the exchange ends, since driving that sequence correctly is the whole contract.
 

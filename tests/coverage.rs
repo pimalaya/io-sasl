@@ -38,7 +38,8 @@ use io_sasl::rfc2195::cram_md5::{SaslCramMd5, SaslCramMd5Creds};
 
 #[cfg(feature = "scram")]
 use io_sasl::{
-    rfc5802::SaslScramCreds, rfc7677::scram_sha_256::SaslScramSha256,
+    rfc5802::{SaslScramCreds, SaslScramOptions},
+    rfc7677::scram_sha_256::SaslScramSha256,
     scram_sha_512::SaslScramSha512,
 };
 
@@ -133,10 +134,13 @@ fn walk() -> Vec<(SaslMechanism, SaslMechanism)> {
 /// the only place it can be caught is here.
 #[cfg(feature = "scram")]
 fn scram() -> Vec<(SaslMechanism, SaslMechanism)> {
-    let sha256 = SaslScramSha256::new(scram_creds(SaslGs2ChannelBinding::Unsupported));
-    let sha256_plus = SaslScramSha256::new(scram_creds(bound()));
-    let sha512 = SaslScramSha512::new(scram_creds(SaslGs2ChannelBinding::Unsupported));
-    let sha512_plus = SaslScramSha512::new(scram_creds(bound()));
+    let plain = || scram_creds(SaslGs2ChannelBinding::Unsupported);
+    let plus = || scram_creds(bound());
+
+    let sha256 = SaslScramSha256::new(plain(), SaslScramOptions::default());
+    let sha256_plus = SaslScramSha256::new(plus(), SaslScramOptions::default());
+    let sha512 = SaslScramSha512::new(plain(), SaslScramOptions::default());
+    let sha512_plus = SaslScramSha512::new(plus(), SaslScramOptions::default());
 
     let mut walk = vec![
         (SaslMechanism::ScramSha256, sha256.mechanism()),
@@ -156,8 +160,11 @@ fn scram() -> Vec<(SaslMechanism, SaslMechanism)> {
 
 #[cfg(feature = "scram-sha-1")]
 fn scram_sha_1() -> Vec<(SaslMechanism, SaslMechanism)> {
-    let sha1 = SaslScramSha1::new(scram_creds(SaslGs2ChannelBinding::Unsupported));
-    let sha1_plus = SaslScramSha1::new(scram_creds(bound()));
+    let plain = scram_creds(SaslGs2ChannelBinding::Unsupported);
+    let plus = scram_creds(bound());
+
+    let sha1 = SaslScramSha1::new(plain, SaslScramOptions::default());
+    let sha1_plus = SaslScramSha1::new(plus, SaslScramOptions::default());
 
     vec![
         (SaslMechanism::ScramSha1, sha1.mechanism()),

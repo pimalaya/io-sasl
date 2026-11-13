@@ -15,17 +15,19 @@
 //! use io_sasl::{
 //!     coroutine::{SaslCoroutine, SaslCoroutineState, SaslArg, SaslYield},
 //!     rfc5801::SaslGs2ChannelBinding,
-//!     rfc5802::SaslScramCreds,
+//!     rfc5802::{SaslScramCreds, SaslScramOptions},
 //!     rfc7677::scram_sha_256::SaslScramSha256,
 //! };
 //! use secrecy::SecretString;
 //!
-//! let mut auth = SaslScramSha256::new(SaslScramCreds {
+//! let creds = SaslScramCreds {
 //!     username: "user".into(),
 //!     password: SecretString::from("pencil"),
 //!     nonce: b"rOprNGfwEbeRWgbNEkqO".to_vec(),
 //!     channel_binding: SaslGs2ChannelBinding::Unsupported,
-//! });
+//! };
+//!
+//! let mut auth = SaslScramSha256::new(creds, SaslScramOptions::default());
 //!
 //! let state = auth.resume(SaslArg::None);
 //!
@@ -99,7 +101,7 @@ mod tests {
         coroutine::*,
         mechanism::SaslMechanism,
         rfc5801::{SaslGs2ChannelBinding, SaslGs2ChannelBindingKind},
-        rfc5802::SaslScramCreds,
+        rfc5802::{SaslScramCreds, SaslScramOptions},
         rfc7677::scram_sha_256::*,
     };
 
@@ -114,7 +116,7 @@ mod tests {
 
     #[test]
     fn exchange_matches_the_rfc_7677_test_vector() {
-        let mut auth = SaslScramSha256::new(creds());
+        let mut auth = SaslScramSha256::new(creds(), SaslScramOptions::default());
 
         assert_eq!(respond(&mut auth, SaslArg::None), CLIENT_FIRST.as_bytes());
 
@@ -132,17 +134,19 @@ mod tests {
 
     #[test]
     fn the_profile_answers_to_both_names_it_is_registered_under() {
-        let plain = SaslScramSha256::new(creds());
+        let plain = SaslScramSha256::new(creds(), SaslScramOptions::default());
 
         assert_eq!(plain.mechanism(), SaslMechanism::ScramSha256);
 
-        let bound = SaslScramSha256::new(SaslScramCreds {
+        let bound = SaslScramCreds {
             channel_binding: SaslGs2ChannelBinding::Bound {
                 kind: SaslGs2ChannelBindingKind::TlsExporter,
                 data: b"binding".to_vec(),
             },
             ..creds()
-        });
+        };
+
+        let bound = SaslScramSha256::new(bound, SaslScramOptions::default());
 
         assert_eq!(bound.mechanism(), SaslMechanism::ScramSha256Plus);
     }
