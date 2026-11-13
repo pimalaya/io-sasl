@@ -216,8 +216,11 @@ impl Oracle {
     /// challenge that earned it has to be exactly that message.
     fn responded(&mut self, challenge: &[u8], payload: &[u8]) {
         if payload.is_empty() {
+            // NOTE: extensions may follow the signature, unread.
+            let verifier = challenge.split(|byte| *byte == b',').next();
+
             assert_eq!(
-                Some(challenge),
+                verifier,
                 self.server_final.as_deref(),
                 "the mechanism verified a server signature that is not the one RFC 5802 computes",
             );
@@ -252,20 +255,13 @@ impl Oracle {
         let client_final = from_utf8(client_final).ok()?;
         let (without_proof, _) = client_final.rsplit_once(",p=")?;
 
-        let mut salt = None;
-        let mut iterations = None;
-
-        // NOTE: last field wins, matching the mechanism's own parse;
-        // the values are read back out of the message that was fed
-        // rather than out of the step that built it, since a Raw step
-        // can carry a server-first-message too.
-        for field in server_first.split(',') {
-            if let Some(s) = field.strip_prefix("s=") {
-                salt = base64.decode(s).ok();
-            } else if let Some(i) = field.strip_prefix("i=") {
-                iterations = i.parse::<u32>().ok();
-            }
-        }
+        // NOTE: the second and third fields, as the grammar orders
+        // them; the values are read back out of the message that was
+        // fed rather than out of the step that built it, since a Raw
+        // step can carry a server-first-message too.
+        let mut fields = server_first.split(',').skip(1);
+        let salt = base64.decode(fields.next()?.strip_prefix("s=")?).ok();
+        let iterations = fields.next()?.strip_prefix("i=")?.parse::<u32>().ok();
 
         let client_first_bare = &self.client_first_bare;
         let auth_message = format!("{client_first_bare},{server_first},{without_proof}");

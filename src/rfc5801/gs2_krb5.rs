@@ -199,7 +199,6 @@ mod tests {
     use alloc::{string::ToString, vec::Vec};
 
     use crate::{
-        coroutine::*,
         mechanism::SaslMechanism,
         rfc5801::{SaslGs2ChannelBindingKind, gs2_krb5::*},
     };

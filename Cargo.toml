@@ -17,9 +17,8 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["saslprep", "scram"]
+default = ["scram"]
 cram-md5 = ["dep:hmac", "dep:md-5"]
-saslprep = ["dep:unicode-normalization"]
 scram = ["dep:base64-codec", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
 scram-sha-1 = ["scram", "dep:sha1"]
 
@@ -33,4 +32,4 @@ secrecy = { version = "0.10", default-features = false }
 sha1 = { version = "0.11", default-features = false, optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
 thiserror = { version = "2", default-features = false }
-unicode-normalization = { version = "0.1", default-features = false, optional = true }
+unicode-normalization = { version = "0.1", default-features = false }

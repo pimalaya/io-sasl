@@ -47,22 +47,21 @@
 use alloc::{string::String, vec::Vec};
 
 use log::debug;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::{ExposeSecret, SecretString, zeroize::Zeroizing};
 use thiserror::Error;
 
-use crate::{coroutine::*, mechanism::SaslMechanism};
-
-#[cfg(feature = "saslprep")]
-use crate::rfc4013::{SaslPrepError, saslprep};
+use crate::{
+    coroutine::*,
+    mechanism::SaslMechanism,
+    rfc4013::{SaslPrepError, saslprep},
+};
 
 /// Failure causes of the PLAIN exchange.
 #[derive(Clone, Debug, Error)]
 pub enum SaslPlainError {
-    /// A credential carried a code point SASLprep prohibits, so it
-    /// cannot be prepared and the server would read something other
-    /// than what was typed.
-    #[cfg(feature = "saslprep")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "saslprep")))]
+    /// A credential carried a code point SASLprep prohibits, a NUL
+    /// included, so it cannot be prepared and the server would read
+    /// something other than what was typed.
     #[error("SASL PLAIN failed: {0}")]
     Preparation(#[from] SaslPrepError),
     /// The mechanism was resumed with a challenge it does not expect,
@@ -127,21 +126,17 @@ impl SaslCoroutine for SaslPlain {
 
                 // NOTE: RFC 4616 section 2 asks the client to prepare
                 // all three, since the server compares against what it
-                // prepared when the password was set.
-                #[cfg(feature = "saslprep")]
-                let (authzid, authcid, passwd) = {
-                    let prepared = [authzid, authcid, passwd].map(saslprep);
+                // prepared when the password was set. Preparing is also
+                // what refuses a NUL, which would shift the fields.
+                let authzid = saslprep(authzid);
+                let authcid = saslprep(authcid);
+                let passwd = saslprep(passwd).map(Zeroizing::new);
 
-                    let [authzid, authcid, passwd] = match prepared {
-                        [Ok(authzid), Ok(authcid), Ok(passwd)] => [authzid, authcid, passwd],
-                        prepared => {
-                            let err = prepared.into_iter().find_map(Result::err);
-                            let err = err.expect("one of the three failed to prepare");
-                            return SaslCoroutineState::Complete(Err(err.into()));
-                        }
-                    };
-
-                    (authzid, authcid, passwd)
+                let (authzid, authcid, passwd) = match (authzid, authcid, passwd) {
+                    (Ok(authzid), Ok(authcid), Ok(passwd)) => (authzid, authcid, passwd),
+                    (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => {
+                        return SaslCoroutineState::Complete(Err(err.into()));
+                    }
                 };
 
                 let mut payload = Vec::new();
@@ -174,7 +169,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, rfc4616::plain::*};
+    use crate::rfc4616::plain::*;
 
     #[test]
     fn start_responds_with_the_nul_separated_triple() {
@@ -205,7 +200,31 @@ mod tests {
         assert_eq!(payload.split(|b| *b == 0).count(), 3);
     }
 
-    #[cfg(feature = "saslprep")]
+    #[test]
+    fn a_credential_holding_the_separator_completes_err() {
+        let fields = [
+            (Some("ad\0min"), "alice", "pencil"),
+            (None, "ali\0ce", "pencil"),
+            (None, "alice", "pen\0cil"),
+        ];
+
+        for (authzid, authcid, passwd) in fields {
+            let mut auth = SaslPlain::new(SaslPlainCreds {
+                authzid: authzid.map(ToString::to_string),
+                authcid: authcid.to_string(),
+                passwd: SecretString::from(passwd.to_string()),
+            });
+
+            let state = auth.resume(SaslArg::None);
+
+            let SaslCoroutineState::Complete(Err(SaslPlainError::Preparation(err))) = state else {
+                panic!("expected SaslPlainError::Preparation, got {state:?}");
+            };
+
+            assert_eq!(err, SaslPrepError::ProhibitedCharacter('\0'));
+        }
+    }
+
     #[test]
     fn the_credentials_are_prepared_before_they_are_sent() {
         // NOTE: RFC 4616 section 2 asks for this, and it is what makes a
@@ -221,7 +240,6 @@ mod tests {
         assert_eq!(respond(&mut auth, SaslArg::None), b"\0alice\0pen cil");
     }
 
-    #[cfg(feature = "saslprep")]
     #[test]
     fn a_credential_that_cannot_be_prepared_completes_err() {
         let creds = SaslPlainCreds {

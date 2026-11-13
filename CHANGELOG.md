@@ -19,7 +19,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING**: Changed `rfc5802::SaslScram::new` to take `(creds, opts)`.
 
-- **BREAKING**: Added the `InvalidNonce`, `IterationCountTooLow` and `IterationCountTooHigh` variants to `rfc5802::SaslScramError`.
+- **BREAKING**: Added the `InvalidNonce`, `IterationCountTooLow`, `IterationCountTooHigh` and `MandatoryExtension` variants to `rfc5802::SaslScramError`.
+
+- **BREAKING**: Added the `InvalidCreds` variant to `rfc7628::oauthbearer::SaslOauthbearerError` and `xoauth2::SaslXoauth2Error`.
+
+- **BREAKING**: Removed the `saslprep` cargo feature.
+
+  PLAIN and SCRAM prepare their credentials in every build, so [unicode-normalization](https://crates.io/crates/unicode-normalization) is no longer optional, and `rfc4013` and the two `Preparation` error variants are always present.
+
+### Fixed
+
+- Fixed PLAIN and SCRAM sending and deriving from unprepared credentials in a build without the `saslprep` feature.
+
+  That build also let a NUL inside a PLAIN field through, which now fails with `Preparation`.
+
+- Fixed OAUTHBEARER sending its authorization identity unescaped.
+
+  `,` goes out as `=2C` and `=` as `=3D`, as the GS2 header asks.
+
+- Fixed OAUTHBEARER and XOAUTH2 sending a credential that holds the `%x01` separator.
+
+  The first resume fails with `InvalidCreds`.
+
+- Fixed SCRAM reading the attributes of a server-first-message in any order, the last of a repeated one winning.
+
+  The nonce, the salt and the iteration count are read where the grammar puts them, and what follows is extensions.
+
+- Fixed SCRAM accepting a server message carrying the reserved `m=` attribute.
+
+  It fails with `MandatoryExtension`.
+
+- Fixed SCRAM refusing a server-final-message carrying extensions after its `v=` or `e=` attribute.
 
 ### Security
 
@@ -34,6 +64,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed SCRAM accepting a client nonce that cannot be one.
 
   A nonce shorter than 18 bytes, an empty one included, or holding a comma or a byte outside printable ASCII fails the first resume with `InvalidNonce`.
+
+- Fixed `coroutine::SaslYield` printing its payload in debug output.
+
+  `WantsWrite` prints as `WantsWrite([n bytes])`, the payload being the password or the token for PLAIN, LOGIN, OAUTHBEARER and XOAUTH2.
+
+- Changed SCRAM to wipe the salted password and the client, stored and server keys when they are dropped.
+
+  PLAIN and SCRAM wipe the prepared copy of the password the same way.
 
 ## [0.1.1] - 2026-11-03
 

@@ -23,15 +23,15 @@ Everything else follows io-imap, since the two crates are read together. A yield
 
 The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Every feature exists because it pulls a crate in, which is the only justification for one.
 
-`scram` pulls the HMAC, PBKDF2, SHA-2 and base64-codec crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. `saslprep` pulls the Unicode normalization the credential preparation needs. Both are in the default set, the first because SCRAM is what most servers offer and the second because it is correctness rather than a mechanism.
+`scram` pulls the HMAC, PBKDF2, SHA-2 and base64-codec crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. It is in the default set, SCRAM being what most servers offer. The credential preparation is not a feature: SASLprep is correctness rather than a mechanism, so the Unicode normalization it needs is a dependency of every build, and a protocol crate cannot end up running PLAIN or SCRAM unprepared by leaving a feature out.
 
 `scram-sha-1` adds the legacy SCRAM profile and its digest crate, and `cram-md5` the legacy digest mechanism and its own. Both stay off, so a build gets a weak mechanism only by asking for it.
 
 Build the three shapes that differ:
 
 ```sh
-cargo build --no-default-features  # the mechanisms needing no extra crate
-cargo build                        # the SCRAM SHA-2 profiles and SASLprep
+cargo build --no-default-features  # the mechanisms needing no cryptography
+cargo build                        # the SCRAM SHA-2 profiles
 cargo build --all-features         # the legacy mechanisms too
 ```
 

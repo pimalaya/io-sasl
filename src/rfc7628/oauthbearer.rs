@@ -75,11 +75,15 @@ use log::{debug, trace};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
-use crate::{coroutine::*, mechanism::SaslMechanism};
+use crate::{coroutine::*, mechanism::SaslMechanism, rfc5801::escape};
 
 /// Failure causes of the OAUTHBEARER exchange.
 #[derive(Clone, Debug, Error)]
 pub enum SaslOauthbearerError {
+    /// The username, the host or the token holds the `%x01` byte that
+    /// separates the fields of the message.
+    #[error("SASL OAUTHBEARER failed: credentials hold the 0x01 separator")]
+    InvalidCreds,
     /// The server rejected the token, describing why in a JSON
     /// challenge.
     #[error("SASL OAUTHBEARER failed: server rejected the token: {0}")]
@@ -137,13 +141,21 @@ impl SaslCoroutine for SaslOauthbearer {
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
             (State::SendToken, SaslArg::None) => {
+                let username = &self.creds.username;
                 let host = &self.creds.host;
                 let port = self.creds.port;
                 let token = self.creds.token.expose_secret();
 
+                let fields = [username.as_str(), host.as_str(), token];
+
+                if fields.iter().any(|field| field.contains('\x01')) {
+                    let err = SaslOauthbearerError::InvalidCreds;
+                    return SaslCoroutineState::Complete(Err(err));
+                }
+
                 let mut payload = Vec::new();
                 payload.extend_from_slice(b"n,a=");
-                payload.extend_from_slice(self.creds.username.as_bytes());
+                payload.extend_from_slice(escape(username).as_bytes());
                 payload.push(b',');
                 payload.push(0x01);
                 payload.extend_from_slice(format!("host={host}").as_bytes());
@@ -194,7 +206,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, rfc7628::oauthbearer::*};
+    use crate::rfc7628::oauthbearer::*;
 
     #[test]
     fn start_responds_with_the_rfc_7628_example_payload() {
@@ -206,6 +218,52 @@ mod tests {
             payload,
             b"n,a=user@example.com,\x01host=server.example.com\x01port=143\x01auth=Bearer vF9dft4qmT\x01\x01",
         );
+    }
+
+    #[test]
+    fn the_authorization_identity_is_escaped() {
+        let mut auth = SaslOauthbearer::new(SaslOauthbearerCreds {
+            username: "a=b,c@example.com".to_string(),
+            ..creds()
+        });
+
+        let payload = respond(&mut auth, SaslArg::None);
+
+        assert!(
+            payload.starts_with(b"n,a=a=3Db=2Cc@example.com,\x01host="),
+            "the header went out as {:?}",
+            String::from_utf8_lossy(&payload),
+        );
+    }
+
+    #[test]
+    fn a_credential_holding_the_separator_completes_err() {
+        let separated = [
+            SaslOauthbearerCreds {
+                username: "user\x01auth=Bearer other".to_string(),
+                ..creds()
+            },
+            SaslOauthbearerCreds {
+                host: "server.example.com\x01port=1".to_string(),
+                ..creds()
+            },
+            SaslOauthbearerCreds {
+                token: SecretString::from("vF9dft4qmT\x01host=other".to_string()),
+                ..creds()
+            },
+        ];
+
+        for creds in separated {
+            let state = SaslOauthbearer::new(creds).resume(SaslArg::None);
+
+            assert!(
+                matches!(
+                    state,
+                    SaslCoroutineState::Complete(Err(SaslOauthbearerError::InvalidCreds)),
+                ),
+                "expected InvalidCreds, got {state:?}"
+            );
+        }
     }
 
     #[test]

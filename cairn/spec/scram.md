@@ -36,6 +36,9 @@ The channel binding vocabulary SHALL live in the `rfc5801` module, the GS2 bridg
 
 The binding material SHALL be supplied by the caller with the credentials, along with which of `tls-exporter`, `tls-unique` and `tls-server-end-point` it came from. The crate SHALL NOT extract it, having no TLS session to ask.
 
+### Requirement: Server message syntax
+The server-first-message SHALL be read in the order RFC 5802 section 7 gives it, the `r=` nonce, the `s=` salt and the `i=` iteration count, failing with `MissingNonce`, `MissingSalt` or `MissingIterations` when one is not at its place, and what follows the iteration count SHALL be taken as extensions and not read. The server-final-message SHALL be read up to its first comma, extensions after it being allowed and not read. Either message carrying the reserved `m=` attribute SHALL fail with `MandatoryExtension`, as RFC 5802 section 5.1 requires.
+
 ### Requirement: Server verification
 The server nonce SHALL extend the client nonce, failing with `NonceMismatch` otherwise. The server-final-message SHALL carry `v=` matching the expected signature, failing with `ServerSignatureMismatch` otherwise, `ServerError` when it carries `e=`, and `InvalidServerFinal` when it carries neither.
 

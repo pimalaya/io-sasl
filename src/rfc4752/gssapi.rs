@@ -322,7 +322,7 @@ enum State {
 mod tests {
     use alloc::{string::ToString, vec::Vec};
 
-    use crate::{coroutine::*, rfc4752::gssapi::*};
+    use crate::rfc4752::gssapi::*;
 
     #[test]
     fn start_responds_with_the_initial_token() {

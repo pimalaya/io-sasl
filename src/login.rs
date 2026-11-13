@@ -156,7 +156,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, login::*};
+    use crate::login::*;
 
     #[test]
     fn exchange_sequences_username_then_password() {

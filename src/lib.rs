@@ -45,8 +45,8 @@
 //! - [`rfc2195::cram_md5`], the CRAM-MD5 mechanism, behind the
 //!   `cram-md5` cargo feature and the only server-first one
 //! - [`rfc4013`], SASLprep, which is not a mechanism but the string
-//!   preparation PLAIN and SCRAM run their credentials through, behind
-//!   the `saslprep` feature
+//!   preparation PLAIN and SCRAM run their credentials through, in
+//!   every build
 //! - [`rfc4422::external`], the EXTERNAL mechanism, defined by the SASL
 //!   framework itself
 //! - [`rfc4505::anonymous`], the ANONYMOUS mechanism
@@ -185,8 +185,6 @@ pub mod mechanism;
 #[cfg(feature = "cram-md5")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cram-md5")))]
 pub mod rfc2195;
-#[cfg(feature = "saslprep")]
-#[cfg_attr(docsrs, doc(cfg(feature = "saslprep")))]
 pub mod rfc4013;
 pub mod rfc4422;
 pub mod rfc4505;

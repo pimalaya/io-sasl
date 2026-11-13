@@ -127,7 +127,7 @@ enum State {
 mod tests {
     use alloc::{string::ToString, vec::Vec};
 
-    use crate::{coroutine::*, rfc4422::external::*};
+    use crate::rfc4422::external::*;
 
     #[test]
     fn start_responds_with_the_authorization_identity() {

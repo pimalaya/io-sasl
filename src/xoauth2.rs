@@ -66,6 +66,10 @@ use crate::{coroutine::*, mechanism::SaslMechanism};
 /// Failure causes of the XOAUTH2 exchange.
 #[derive(Clone, Debug, Error)]
 pub enum SaslXoauth2Error {
+    /// The username or the token holds the `%x01` byte that separates
+    /// the fields of the message.
+    #[error("SASL XOAUTH2 failed: credentials hold the 0x01 separator")]
+    InvalidCreds,
     /// The server rejected the token, describing why in a JSON
     /// challenge.
     #[error("SASL XOAUTH2 failed: server rejected the token: {0}")]
@@ -119,11 +123,17 @@ impl SaslCoroutine for SaslXoauth2 {
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>> {
         match (&self.state, arg) {
             (State::SendToken, SaslArg::None) => {
+                let username = &self.creds.username;
                 let token = self.creds.token.expose_secret();
+
+                if username.contains('\x01') || token.contains('\x01') {
+                    let err = SaslXoauth2Error::InvalidCreds;
+                    return SaslCoroutineState::Complete(Err(err));
+                }
 
                 let mut payload = Vec::new();
                 payload.extend_from_slice(b"user=");
-                payload.extend_from_slice(self.creds.username.as_bytes());
+                payload.extend_from_slice(username.as_bytes());
                 payload.push(0x01);
                 payload.extend_from_slice(b"auth=Bearer ");
                 payload.extend_from_slice(token.as_bytes());
@@ -169,7 +179,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, xoauth2::*};
+    use crate::xoauth2::*;
 
     #[test]
     fn start_responds_with_the_documented_payload() {
@@ -181,6 +191,32 @@ mod tests {
             payload,
             b"user=someuser@example.com\x01auth=Bearer vF9dft4qmT\x01\x01",
         );
+    }
+
+    #[test]
+    fn a_credential_holding_the_separator_completes_err() {
+        let separated = [
+            SaslXoauth2Creds {
+                username: "someuser@example.com\x01auth=Bearer other".to_string(),
+                ..creds()
+            },
+            SaslXoauth2Creds {
+                token: SecretString::from("vF9dft4qmT\x01user=other".to_string()),
+                ..creds()
+            },
+        ];
+
+        for creds in separated {
+            let state = SaslXoauth2::new(creds).resume(SaslArg::None);
+
+            assert!(
+                matches!(
+                    state,
+                    SaslCoroutineState::Complete(Err(SaslXoauth2Error::InvalidCreds)),
+                ),
+                "expected InvalidCreds, got {state:?}"
+            );
+        }
     }
 
     #[test]

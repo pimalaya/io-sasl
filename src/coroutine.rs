@@ -9,6 +9,8 @@
 //! challenge": a mechanism performing mutual authentication has to be
 //! able to refuse an exchange that ended before it verified anything.
 
+use core::fmt;
+
 use alloc::vec::Vec;
 
 use crate::mechanism::SaslMechanism;
@@ -69,7 +71,9 @@ pub enum SaslArg<'a> {
 /// relaying mechanism gets what the caller's own security context made
 /// of the result. That is why the argument carrying it is named
 /// [`SaslArg::Input`], for its role rather than for its origin.
-#[derive(Debug)]
+///
+/// `Debug` prints the length of a payload, never its bytes, which for
+/// several mechanisms are the password or the token.
 pub enum SaslYield {
     /// The mechanism has nothing to send and wants what the caller
     /// reads next, which comes back as [`SaslArg::Input`], or as
@@ -83,6 +87,18 @@ pub enum SaslYield {
     /// protocol whose framing already ended the exchange may drop it
     /// instead of writing an empty line.
     WantsWrite(Vec<u8>),
+}
+
+impl fmt::Debug for SaslYield {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WantsRead => f.write_str("WantsRead"),
+            Self::WantsWrite(payload) => {
+                let len = payload.len();
+                write!(f, "WantsWrite([{len} bytes])")
+            }
+        }
+    }
 }
 
 /// Standard-shape SASL mechanism: owns its exchange state, names
@@ -111,4 +127,20 @@ pub trait SaslCoroutine {
         &mut self,
         arg: SaslArg<'_>,
     ) -> SaslCoroutineState<SaslYield, Result<(), Self::Error>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::format;
+
+    use crate::coroutine::*;
+
+    #[test]
+    fn a_payload_is_debug_printed_as_its_length() {
+        let state: SaslCoroutineState<SaslYield, ()> =
+            SaslCoroutineState::Yielded(SaslYield::WantsWrite(b"\0alice\0pencil".to_vec()));
+
+        assert_eq!(format!("{state:?}"), "Yielded(WantsWrite([13 bytes]))");
+        assert_eq!(format!("{:?}", SaslYield::WantsRead), "WantsRead");
+    }
 }

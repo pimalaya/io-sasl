@@ -63,17 +63,15 @@ use base64_codec::codec::Base64Codec;
 use hmac::{EagerHash, Hmac, KeyInit, Mac, digest::Output};
 use log::{debug, trace};
 use pbkdf2::pbkdf2_hmac;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::{ExposeSecret, SecretString, zeroize::Zeroizing};
 use thiserror::Error;
 
 use crate::{
     coroutine::*,
     mechanism::SaslMechanism,
+    rfc4013::{SaslPrepError, saslprep},
     rfc5801::{SaslGs2ChannelBinding, escape},
 };
-
-#[cfg(feature = "saslprep")]
-use crate::rfc4013::{SaslPrepError, saslprep};
 
 #[cfg(feature = "scram-sha-1")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram-sha-1")))]
@@ -89,8 +87,6 @@ pub enum SaslScramError {
     /// A credential carried a code point SASLprep prohibits, so it
     /// cannot be prepared and the key derivation would run on bytes
     /// the server never stored.
-    #[cfg(feature = "saslprep")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "saslprep")))]
     #[error("SASL SCRAM failed: {0}")]
     Preparation(#[from] SaslPrepError),
     /// The client nonce is shorter than [`SASL_SCRAM_MIN_NONCE_LEN`], or
@@ -100,13 +96,18 @@ pub enum SaslScramError {
     /// A server message was not valid UTF-8.
     #[error("SASL SCRAM failed: invalid server message encoding")]
     InvalidEncoding,
-    /// The server-first-message carried no `r=` nonce.
+    /// A server message carried the reserved `m=` attribute, an
+    /// extension this version of SCRAM has to refuse.
+    #[error("SASL SCRAM failed: unsupported mandatory extension")]
+    MandatoryExtension,
+    /// The server-first-message did not open with its `r=` nonce.
     #[error("SASL SCRAM failed: server-first-message missing nonce")]
     MissingNonce,
-    /// The server-first-message carried no `s=` salt.
+    /// No `s=` salt followed the nonce of the server-first-message.
     #[error("SASL SCRAM failed: server-first-message missing salt")]
     MissingSalt,
-    /// The server-first-message carried no `i=` iteration count.
+    /// No `i=` iteration count followed the salt of the
+    /// server-first-message.
     #[error("SASL SCRAM failed: server-first-message missing iteration count")]
     MissingIterations,
     /// The `i=` iteration count was not a positive decimal number.
@@ -302,30 +303,31 @@ impl<D: SaslScramDigest> SaslScram<D> {
     fn client_final(&mut self, server_first: &[u8]) -> Result<Vec<u8>, SaslScramError> {
         let server_first = from_utf8(server_first).map_err(|_| SaslScramError::InvalidEncoding)?;
 
-        let mut nonce = None;
-        let mut salt = None;
-        let mut iterations = None;
+        // NOTE: the fields come in the order of RFC 5802 section 7,
+        // and what follows the iteration count is extensions.
+        let mut fields = server_first.split(',');
 
-        for field in server_first.split(',') {
-            if let Some(r) = field.strip_prefix("r=") {
-                nonce = Some(r);
-            } else if let Some(s) = field.strip_prefix("s=") {
-                salt = Some(base64_decode(s)?);
-            } else if let Some(i) = field.strip_prefix("i=") {
-                // NOTE: a u32 alone also parses 0, +1 and 01, which the
-                // posit-number of RFC 5802 section 7 excludes.
-                let i = match i.as_bytes() {
-                    [b'1'..=b'9', ..] => i.parse::<u32>().ok(),
-                    _ => None,
-                };
-
-                iterations = Some(i.ok_or(SaslScramError::InvalidIterationCount)?);
-            }
+        if fields.clone().any(|field| field.starts_with("m=")) {
+            return Err(SaslScramError::MandatoryExtension);
         }
 
+        let nonce = fields.next().and_then(|field| field.strip_prefix("r="));
         let nonce = nonce.ok_or(SaslScramError::MissingNonce)?;
-        let salt = salt.ok_or(SaslScramError::MissingSalt)?;
-        let count = iterations.ok_or(SaslScramError::MissingIterations)?;
+
+        let salt = fields.next().and_then(|field| field.strip_prefix("s="));
+        let salt = base64_decode(salt.ok_or(SaslScramError::MissingSalt)?)?;
+
+        let count = fields.next().and_then(|field| field.strip_prefix("i="));
+        let count = count.ok_or(SaslScramError::MissingIterations)?;
+
+        // NOTE: a u32 alone also parses 0, +1 and 01, which the
+        // posit-number of RFC 5802 section 7 excludes.
+        let count = match count.as_bytes() {
+            [b'1'..=b'9', ..] => count.parse::<u32>().ok(),
+            _ => None,
+        };
+
+        let count = count.ok_or(SaslScramError::InvalidIterationCount)?;
 
         if !nonce.starts_with(&self.client_nonce) {
             return Err(SaslScramError::NonceMismatch);
@@ -354,19 +356,19 @@ impl<D: SaslScramDigest> SaslScram<D> {
         let auth_message =
             format!("{client_first_bare},{server_first},{client_final_without_proof}");
 
-        let mut salted_password = Output::<D>::default();
+        let mut salted_password = Zeroizing::new(Output::<D>::default().to_vec());
         let password = self.password.expose_secret().as_bytes();
         pbkdf2_hmac::<D>(password, &salt, count, &mut salted_password);
 
         let client_key = hmac::<D>(&salted_password, b"Client Key");
-        let stored_key = D::digest(&client_key);
+        let stored_key = Zeroizing::new(D::digest(&client_key).to_vec());
         let client_signature = hmac::<D>(&stored_key, auth_message.as_bytes());
 
-        let mut client_proof = client_key;
-
-        for (proof, signature) in client_proof.iter_mut().zip(client_signature) {
-            *proof ^= signature;
-        }
+        let client_proof: Vec<u8> = client_key
+            .iter()
+            .zip(client_signature.iter())
+            .map(|(key, signature)| key ^ signature)
+            .collect();
 
         let server_key = hmac::<D>(&salted_password, b"Server Key");
         self.expected_server_signature = hmac::<D>(&server_key, auth_message.as_bytes()).to_vec();
@@ -381,15 +383,22 @@ impl<D: SaslScramDigest> SaslScram<D> {
     fn verify_server_final(&self, server_final: &[u8]) -> Result<(), SaslScramError> {
         let server_final = from_utf8(server_final).map_err(|_| SaslScramError::InvalidEncoding)?;
 
-        if let Some(error) = server_final.strip_prefix("e=") {
+        // NOTE: what follows the first field is extensions (RFC 5802
+        // section 7).
+        let mut fields = server_final.split(',');
+
+        if fields.clone().any(|field| field.starts_with("m=")) {
+            return Err(SaslScramError::MandatoryExtension);
+        }
+
+        let outcome = fields.next().unwrap_or_default();
+
+        if let Some(error) = outcome.strip_prefix("e=") {
             return Err(SaslScramError::ServerError(error.to_string()));
         }
 
-        let signature = server_final
-            .strip_prefix("v=")
-            .ok_or(SaslScramError::InvalidServerFinal)?;
-
-        let signature = base64_decode(signature)?;
+        let signature = outcome.strip_prefix("v=");
+        let signature = base64_decode(signature.ok_or(SaslScramError::InvalidServerFinal)?)?;
 
         // NOTE: the bytes are compared in constant time, so a wrong
         // signature leaks nothing about how much of it matched.
@@ -436,21 +445,17 @@ impl<D: SaslScramDigest> SaslCoroutine for SaslScram<D> {
                 // both, and the password reaches the key derivation, so
                 // preparing late would derive a key from bytes the
                 // server never stored.
-                #[cfg(feature = "saslprep")]
-                {
-                    let prepared = [self.username.as_str(), self.password.expose_secret()];
+                let username = saslprep(&self.username);
+                let password = saslprep(self.password.expose_secret()).map(Zeroizing::new);
 
-                    let [username, password] = match prepared.map(saslprep) {
-                        [Ok(username), Ok(password)] => [username, password],
-                        prepared => {
-                            let err = prepared.into_iter().find_map(Result::err);
-                            let err = err.expect("one of the two failed to prepare");
-                            return SaslCoroutineState::Complete(Err(err.into()));
-                        }
-                    };
-
-                    self.username = username;
-                    self.password = SecretString::from(password);
+                match (username, password) {
+                    (Ok(username), Ok(password)) => {
+                        self.username = username;
+                        self.password = SecretString::from(password.as_str());
+                    }
+                    (Err(err), _) | (_, Err(err)) => {
+                        return SaslCoroutineState::Complete(Err(err.into()));
+                    }
                 }
 
                 let escaped = escape(&self.username);
@@ -509,15 +514,11 @@ enum State {
 }
 
 /// HMAC as RFC 5802 uses it, in the digest of the profile:
-/// `HMAC(key, data)`.
-///
-/// NOTE: the output is sized by `Hmac<D>` rather than by `D`, which is
-/// the same length by construction; only the compiler needs telling
-/// them apart.
-fn hmac<D: EagerHash>(key: &[u8], data: &[u8]) -> Output<Hmac<D>> {
+/// `HMAC(key, data)`, wiped when dropped since most outputs are keys.
+fn hmac<D: EagerHash>(key: &[u8], data: &[u8]) -> Zeroizing<Vec<u8>> {
     let mut mac = Hmac::<D>::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(data);
-    mac.finalize().into_bytes()
+    Zeroizing::new(mac.finalize().into_bytes().to_vec())
 }
 
 /// The standard, padded base64 of `bytes`.
@@ -552,7 +553,6 @@ mod tests {
     use secrecy::SecretString;
 
     use crate::{
-        coroutine::*,
         rfc5801::{SaslGs2ChannelBinding, SaslGs2ChannelBindingKind},
         rfc5802::*,
         rfc7677::scram_sha_256::SaslScramSha256,
@@ -627,7 +627,132 @@ mod tests {
         assert_eq!(reported, "invalid-proof");
     }
 
-    #[cfg(feature = "saslprep")]
+    #[test]
+    fn a_mandatory_extension_completes_err() {
+        let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+
+        let server_first = format!("m=ext,{SERVER_FIRST}");
+        let state = auth.resume(SaslArg::Input(server_first.as_bytes()));
+
+        assert!(
+            matches!(
+                state,
+                SaslCoroutineState::Complete(Err(SaslScramError::MandatoryExtension)),
+            ),
+            "expected MandatoryExtension, got {state:?}"
+        );
+
+        let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+
+        let server_first = format!("{SERVER_FIRST},m=ext");
+        let state = auth.resume(SaslArg::Input(server_first.as_bytes()));
+
+        assert!(
+            matches!(
+                state,
+                SaslCoroutineState::Complete(Err(SaslScramError::MandatoryExtension)),
+            ),
+            "expected MandatoryExtension, got {state:?}"
+        );
+
+        let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
+
+        let server_final = format!("{SERVER_FINAL},m=ext");
+        let state = auth.resume(SaslArg::Input(server_final.as_bytes()));
+
+        assert!(
+            matches!(
+                state,
+                SaslCoroutineState::Complete(Err(SaslScramError::MandatoryExtension)),
+            ),
+            "expected MandatoryExtension, got {state:?}"
+        );
+    }
+
+    #[test]
+    fn a_server_first_message_out_of_order_completes_err() {
+        let disordered = [
+            (
+                "s=W22ZaJ0SNY7soEsUEjb6gQ==,r=rOprNGfwEbeRWgbNEkqOx,i=4096",
+                "missing nonce",
+            ),
+            (
+                "r=rOprNGfwEbeRWgbNEkqOx,r=rOprNGfwEbeRWgbNEkqOy,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
+                "missing salt",
+            ),
+            (
+                "r=rOprNGfwEbeRWgbNEkqOx,s=W22ZaJ0SNY7soEsUEjb6gQ==,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
+                "missing iteration count",
+            ),
+            (
+                "r=rOprNGfwEbeRWgbNEkqOx,i=4096,s=W22ZaJ0SNY7soEsUEjb6gQ==",
+                "missing salt",
+            ),
+        ];
+
+        for (server_first, what) in disordered {
+            let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+            let _ = respond(&mut auth, SaslArg::None);
+
+            let state = auth.resume(SaslArg::Input(server_first.as_bytes()));
+
+            let SaslCoroutineState::Complete(Err(err)) = state else {
+                panic!("{server_first}: expected Complete(Err), got {state:?}");
+            };
+
+            assert!(err.to_string().ends_with(what), "{server_first}: {err}");
+        }
+    }
+
+    #[test]
+    fn extensions_after_the_iteration_count_are_not_read() {
+        let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+
+        let server_first = format!("{SERVER_FIRST},x=ext,i=1,r=other");
+        let client_final = respond(&mut auth, SaslArg::Input(server_first.as_bytes()));
+
+        assert!(
+            client_final
+                .starts_with(b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=")
+        );
+    }
+
+    #[test]
+    fn extensions_after_the_server_final_message_are_not_read() {
+        let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
+
+        let server_final = format!("{SERVER_FINAL},x=ext");
+        let ack = respond(&mut auth, SaslArg::Input(server_final.as_bytes()));
+
+        assert!(ack.is_empty());
+
+        let mut auth = scram(creds(SaslGs2ChannelBinding::Unsupported));
+
+        let _ = respond(&mut auth, SaslArg::None);
+        let _ = respond(&mut auth, SaslArg::Input(SERVER_FIRST.as_bytes()));
+
+        let SaslCoroutineState::Complete(Err(SaslScramError::ServerError(reported))) =
+            auth.resume(SaslArg::Input(b"e=invalid-proof,x=ext"))
+        else {
+            panic!("expected SaslScramError::ServerError");
+        };
+
+        assert_eq!(reported, "invalid-proof");
+    }
+
     #[test]
     fn the_credentials_are_prepared_before_the_first_message() {
         // NOTE: the username reaches the wire and the password reaches
@@ -657,7 +782,6 @@ mod tests {
         assert!(client_final.ends_with(b"p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ="));
     }
 
-    #[cfg(feature = "saslprep")]
     #[test]
     fn a_credential_that_cannot_be_prepared_completes_err() {
         let mut auth = scram(SaslScramCreds {

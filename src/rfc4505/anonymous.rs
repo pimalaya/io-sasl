@@ -122,7 +122,7 @@ enum State {
 mod tests {
     use alloc::{string::ToString, vec::Vec};
 
-    use crate::{coroutine::*, rfc4505::anonymous::*};
+    use crate::rfc4505::anonymous::*;
 
     #[test]
     fn start_responds_with_the_trace_token() {

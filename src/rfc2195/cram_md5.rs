@@ -189,7 +189,7 @@ mod tests {
 
     use secrecy::SecretString;
 
-    use crate::{coroutine::*, rfc2195::cram_md5::*};
+    use crate::rfc2195::cram_md5::*;
 
     // NOTE: the published exchange of RFC 2195 section 2, for the user
     // "tim" with the secret "tanstaaftanstaaf".
