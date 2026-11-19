@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the `server` cargo feature and the `server` module: `SaslServer`, an I/O-free server side of PLAIN and LOGIN that yields the client credentials for the caller to verify.
+
+- Added a `server` fuzz target.
+
+### Changed
+
+- **BREAKING**: Gated the client mechanisms behind the new `client` cargo feature, on by default.
+
+  `coroutine`, every mechanism module and `mechanism::Sasl` need it; `mechanism::SaslMechanism` and `rfc4013` stay in every build. `scram` and `cram-md5` enable it. A `default-features = false` consumer using the client mechanisms adds `features = ["client"]`.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added

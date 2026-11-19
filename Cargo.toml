@@ -17,10 +17,12 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["scram"]
-cram-md5 = ["dep:hmac", "dep:md-5"]
-scram = ["dep:base64-codec", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
+default = ["client", "scram"]
+client = []
+cram-md5 = ["client", "dep:hmac", "dep:md-5"]
+scram = ["client", "dep:base64-codec", "dep:hmac", "dep:pbkdf2", "dep:sha2"]
 scram-sha-1 = ["scram", "dep:sha1"]
+server = []
 
 [dependencies]
 base64-codec = { version = "0.1", default-features = false, features = ["alloc"], optional = true }

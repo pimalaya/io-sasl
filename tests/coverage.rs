@@ -16,6 +16,8 @@
 //! credentials it was built from. The point is not the coverage number;
 //! it is that a typo in an arm nobody exercises has somewhere to fail.
 
+#![cfg(feature = "client")]
+
 use io_sasl::{
     coroutine::*,
     login::{SaslLogin, SaslLoginCreds},

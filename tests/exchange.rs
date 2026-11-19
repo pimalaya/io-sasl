@@ -27,6 +27,8 @@
 //! match, so a mechanism added later has to answer all three questions
 //! before this file compiles.
 
+#![cfg(feature = "client")]
+
 use core::fmt::Display;
 
 use io_sasl::{

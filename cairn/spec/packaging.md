@@ -14,6 +14,9 @@ The crate is published as io-sasl, the I/O-free SASL layer every Pimalaya protoc
 ### Requirement: Dependencies
 The vocabulary and the mechanisms needing no cryptography SHALL depend only on `secrecy`, `log`, `thiserror` and `unicode-normalization`, the last without its `std` feature. `base64-codec`, `hmac`, `pbkdf2` and `sha2` SHALL be optional and pulled by the `scram` feature, `sha1` by `scram-sha-1`, and `md-5` by `cram-md5`. A random number generator SHALL NOT be a dependency, and neither SHALL a TLS implementation or a Kerberos one.
 
+### Requirement: Sides
+The `client` feature, on by default, SHALL gate the client mechanisms, the `coroutine` contract and `mechanism::Sasl`; `scram` and `cram-md5` SHALL imply it. The `server` feature SHALL gate the `server` module. `mechanism::SaslMechanism` and `rfc4013` SHALL compile in every build, `--no-default-features` included.
+
 ### Requirement: Public surface
 There SHALL be no re-export at the crate root: consumers reach items through module-qualified paths. Every public item SHALL be documented, enforced by `#![deny(missing_docs)]`.
 

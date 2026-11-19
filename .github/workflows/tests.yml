@@ -23,6 +23,7 @@ jobs:
           extraPullNames: nix-community
       - uses: Swatinem/rust-cache@v2
       - run: nix develop -c cargo test --no-default-features
+      - run: nix develop -c cargo test --no-default-features --features server
       - run: nix develop -c cargo test --all-features
 
   coverage:

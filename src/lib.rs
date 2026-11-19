@@ -21,11 +21,12 @@
 //! command grammars, their continuation requests and their reply
 //! codes, and share the mechanisms.
 //!
-//! Every mechanism is client-side: ANONYMOUS, CRAM-MD5, EXTERNAL,
-//! GSSAPI, GS2-KRB5, LOGIN, PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM
-//! profiles SHA-1, SHA-256 and SHA-512, the last four under both the
-//! name they are registered with and the `-PLUS` name they take when a
-//! channel binding is in use. Server-side SASL is out of scope.
+//! The client mechanisms, behind the `client` cargo feature (on by
+//! default), are ANONYMOUS, CRAM-MD5, EXTERNAL, GSSAPI, GS2-KRB5,
+//! LOGIN, PLAIN, OAUTHBEARER, XOAUTH2, and the SCRAM profiles SHA-1,
+//! SHA-256 and SHA-512, the last four under both the name they are
+//! registered with and the `-PLUS` name they take when a channel
+//! binding is in use.
 //!
 //! Most of them compute what they send. The two Kerberos mechanisms
 //! cannot: their tokens come from an implementation that reads a
@@ -36,6 +37,10 @@
 //! sequencing, while the caller holds the security context. That is the
 //! building block a consumer needs, not the whole mechanism, and each
 //! module says exactly where the line falls.
+//!
+//! The `server` cargo feature adds [`server`], the server side of PLAIN
+//! and LOGIN: it parses what a client sends and yields the credentials
+//! for the caller to verify, never checking a password itself.
 //!
 //! ## Layout
 //!
@@ -63,6 +68,8 @@
 //! - [`login`], the LOGIN mechanism (draft-murchison-sasl-login)
 //! - [`scram_sha_512`], the SHA-512 profile of SCRAM
 //!   (draft-melnikov-scram-sha-512)
+//! - [`server`], the server side of PLAIN and LOGIN, behind the `server`
+//!   cargo feature
 //! - [`xoauth2`], the XOAUTH2 mechanism (Google, pre-standard)
 //!
 //! Everything SCRAM sits behind the `scram` cargo feature, which pulls
@@ -179,21 +186,37 @@
 
 extern crate alloc;
 
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod coroutine;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod login;
 pub mod mechanism;
 #[cfg(feature = "cram-md5")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cram-md5")))]
 pub mod rfc2195;
 pub mod rfc4013;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod rfc4422;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod rfc4505;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod rfc4616;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod rfc4752;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod rfc5801;
 #[cfg(feature = "scram")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
 pub mod rfc5802;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod rfc7628;
 #[cfg(feature = "scram")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
@@ -201,4 +224,9 @@ pub mod rfc7677;
 #[cfg(feature = "scram")]
 #[cfg_attr(docsrs, doc(cfg(feature = "scram")))]
 pub mod scram_sha_512;
+#[cfg(feature = "server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "server")))]
+pub mod server;
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod xoauth2;

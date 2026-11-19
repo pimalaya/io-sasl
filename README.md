@@ -32,6 +32,7 @@ There is no client layer: the crate opens nothing. It computes what a mechanism 
 - **Mutual authentication that cannot be skipped**: an exchange ending before SCRAM verified the server signature fails instead of succeeding.
 - **Caller-owned randomness**: the SCRAM nonce and the channel binding come with the credentials, so entropy and TLS stay the application's.
 - **Credential redaction**: passwords and tokens stay inside secret wrappers and never reach the logs.
+- **Server side**: behind the `server` feature, PLAIN and LOGIN parsed for a server, the credentials handed to the caller to verify.
 
 > [!TIP]
 > I/O SASL is written in [Rust](https://www.rust-lang.org/) and uses [cargo features](https://doc.rust-lang.org/cargo/reference/features.html) to gate the mechanisms pulling in a crypto crate. The default feature set is declared in [Cargo.toml](./Cargo.toml) or on [docs.rs](https://docs.rs/crate/io-sasl/latest/features).

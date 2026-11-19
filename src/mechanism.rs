@@ -12,6 +12,7 @@
 
 #[cfg(feature = "cram-md5")]
 use crate::rfc2195::cram_md5::SaslCramMd5Creds;
+#[cfg(feature = "client")]
 use crate::{
     login::SaslLoginCreds, rfc4422::external::SaslExternalCreds,
     rfc4505::anonymous::SaslAnonymousCreds, rfc4616::plain::SaslPlainCreds,
@@ -103,6 +104,8 @@ impl SaslMechanism {
 /// [`channel_binding`](crate::rfc5802::SaslScramCreds::channel_binding)
 /// the credentials carry, so the variant names the profile and the
 /// credentials name the binding.
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 #[derive(Clone, Debug)]
 pub enum Sasl {
     /// ANONYMOUS credentials.
@@ -139,6 +142,7 @@ pub enum Sasl {
     ScramSha512(SaslScramCreds),
 }
 
+#[cfg(feature = "client")]
 impl Sasl {
     /// The tag of the mechanism these credentials describe.
     ///
@@ -181,6 +185,7 @@ impl Sasl {
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslAnonymousCreds> for Sasl {
     fn from(sasl: SaslAnonymousCreds) -> Self {
         Self::Anonymous(sasl)
@@ -194,42 +199,49 @@ impl From<SaslCramMd5Creds> for Sasl {
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslExternalCreds> for Sasl {
     fn from(sasl: SaslExternalCreds) -> Self {
         Self::External(sasl)
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslGssapiCreds> for Sasl {
     fn from(sasl: SaslGssapiCreds) -> Self {
         Self::Gssapi(sasl)
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslGs2Krb5Creds> for Sasl {
     fn from(sasl: SaslGs2Krb5Creds) -> Self {
         Self::Gs2Krb5(sasl)
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslLoginCreds> for Sasl {
     fn from(sasl: SaslLoginCreds) -> Self {
         Self::Login(sasl)
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslPlainCreds> for Sasl {
     fn from(sasl: SaslPlainCreds) -> Self {
         Self::Plain(sasl)
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslOauthbearerCreds> for Sasl {
     fn from(sasl: SaslOauthbearerCreds) -> Self {
         Self::Oauthbearer(sasl)
     }
 }
 
+#[cfg(feature = "client")]
 impl From<SaslXoauth2Creds> for Sasl {
     fn from(sasl: SaslXoauth2Creds) -> Self {
         Self::Xoauth2(sasl)
@@ -240,7 +252,7 @@ impl From<SaslXoauth2Creds> for Sasl {
 // is no From impl for it: the profile is the caller's choice, and an
 // impl would have to guess which of the three variants it meant.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "client"))]
 mod tests {
     use alloc::{vec, vec::Vec};
 

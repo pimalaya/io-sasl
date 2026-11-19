@@ -21,18 +21,20 @@ Everything else follows io-imap, since the two crates are read together. A yield
 
 ## Feature matrix
 
-The crate ships I/O-free mechanisms and nothing else: there is no client layer to gate, because it opens no connection. Every feature exists because it pulls a crate in, which is the only justification for one.
+The crate ships I/O-free mechanisms and nothing else: it opens no connection. Two features split it by side: `client` (default) gates the client mechanisms, the coroutine contract and the `Sasl` credential set, and `server` gates the server side of PLAIN and LOGIN. The `SaslMechanism` tag and SASLprep stay in every build. Every other feature exists because it pulls a crate in, which is the only justification for one. `scram` and `cram-md5` imply `client`, their mechanisms being client-side only.
 
 `scram` pulls the HMAC, PBKDF2, SHA-2 and base64-codec crates the SCRAM exchange needs, giving the SHA-256 and SHA-512 profiles: they share one digest crate, so gating them apart would change no dependency and buy nothing. It is in the default set, SCRAM being what most servers offer. The credential preparation is not a feature: SASLprep is correctness rather than a mechanism, so the Unicode normalization it needs is a dependency of every build, and a protocol crate cannot end up running PLAIN or SCRAM unprepared by leaving a feature out.
 
 `scram-sha-1` adds the legacy SCRAM profile and its digest crate, and `cram-md5` the legacy digest mechanism and its own. Both stay off, so a build gets a weak mechanism only by asking for it.
 
-Build the three shapes that differ:
+Build the shapes that differ:
 
 ```sh
-cargo build --no-default-features  # the mechanisms needing no cryptography
-cargo build                        # the SCRAM SHA-2 profiles
-cargo build --all-features         # the legacy mechanisms too
+cargo build --no-default-features                    # the tag and SASLprep only
+cargo build --no-default-features --features client  # the mechanisms needing no cryptography
+cargo build --no-default-features --features server  # the server side only
+cargo build                                          # the SCRAM SHA-2 profiles
+cargo build --all-features                           # the legacy mechanisms and the server too
 ```
 
 ## Tests
@@ -41,10 +43,11 @@ Three layers, each answering a different question. The unit tests next to each m
 
 The example opening each mechanism module is a fourth layer, thin but load-bearing: it is the exchange a consumer copies, and it runs as a doctest, so an API change that would leave a protocol crate driving the mechanism wrong breaks the documentation that taught it.
 
-Run the three shapes, since each compiles a different set of mechanisms:
+Run the shapes, since each compiles a different set of mechanisms:
 
 ```sh
-cargo test --no-default-features
+cargo test --no-default-features --features client
+cargo test --no-default-features --features server
 cargo test
 cargo test --all-features
 ```

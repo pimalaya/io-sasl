@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
-io-sasl = { path = "..", features = ["cram-md5", "scram", "scram-sha-1"] }
+io-sasl = { path = "..", features = ["cram-md5", "scram", "scram-sha-1", "server"] }
 libfuzzer-sys = "0.4"
 secrecy = "0.10"
 
@@ -31,6 +31,13 @@ bench = false
 [[bin]]
 name = "scram"
 path = "fuzz_targets/scram.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server"
+path = "fuzz_targets/server.rs"
 test = false
 doc = false
 bench = false
